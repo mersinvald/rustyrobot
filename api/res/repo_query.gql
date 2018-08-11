@@ -1,0 +1,39 @@
+query {
+    search($ARGS$) {
+        pageInfo {
+          endCursor
+          hasNextPage
+        }
+        repositoryCount
+        nodes {
+          ... on Repository {
+            id
+            databaseId
+            createdAt
+            defaultBranchRef {
+              id
+              name
+              prefix
+            }
+            description
+            diskUsage
+            forkCount
+            hasIssuesEnabled
+            isArchived
+            isFork
+            isLocked
+            isPrivate
+            nameWithOwner
+            parent {
+              nameWithOwner
+              sshUrl
+            }
+            sshUrl
+            url
+            viewerHasStarred
+            viewerPermission
+            viewerSubscription
+          }
+        }
+    }
+}
