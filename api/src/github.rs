@@ -13,9 +13,11 @@ use error_chain_failure_interop::ResultExt;
 use search::*;
 use search::query::*;
 use json;
+use db;
 
 pub struct GitHub {
     driver: Github,
+    db: db::KV,
     login: String,
     limit: RateLimit,
 }
@@ -47,7 +49,7 @@ impl From<RequestCost> for u64 {
 }
 
 impl GitHub {
-    pub fn new<T>(token: T) -> Result<Self, Error>
+    pub fn new<T>(db: db::KV, token: T) -> Result<Self, Error>
         where T: AsRef<str> + Display
     {
         let mut driver = Github::new(token)
@@ -58,6 +60,7 @@ impl GitHub {
         let limit = Self::run_get_api_limit(&mut driver)?;
 
         let gh = GitHub {
+            db,
             driver,
             login,
             limit
@@ -82,7 +85,10 @@ impl GitHub {
     }
 
     fn try_rate_limit(&self, cost: u64) -> Result<(), Error> {
-        if self.limit.used + cost >= self.limit.limit {
+        // Limit reserve to allow application to reauth and refetch the limits after restar
+        static LIMIT_RESERVE: u64 = 6;
+
+        if self.limit.used + cost + LIMIT_RESERVE >= self.limit.limit {
             let now = Utc::now();
             let reset_in = self.limit.reset_at.timestamp() - now.timestamp();
             assert!(reset_in >= 0);

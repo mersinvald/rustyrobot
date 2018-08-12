@@ -1,3 +1,5 @@
+pub mod stats;
+
 use std::sync::{Arc, RwLock};
 use std::path::Path;
 use failure::Error;
