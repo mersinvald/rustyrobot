@@ -99,8 +99,11 @@ impl GithubService {
 
         // Main loop
         loop {
+            // Pause flag
+            let mut should_pause = true;
+
             for (n, client) in clients.iter().enumerate() {
-                debug!("polling client {:?} message queue", client.id);
+                trace!("polling client {:?} message queue", client.id);
                 let req = match client.req_rx.try_recv() {
                     Ok(req) => req,
                     Err(TryRecvError::Empty) => continue,
@@ -110,6 +113,9 @@ impl GithubService {
                     }
                 };
                 debug!("accepted request from client {:?}", client.id);
+
+                // Disable pauses for one iteration after each live request
+                should_pause = false;
 
                 // Request timeout retry loop
                 let request_result = loop {
@@ -148,6 +154,10 @@ impl GithubService {
 
             // Clear the hangs-up list
             hanged_up.clear();
+
+            if should_pause {
+                thread::sleep(Duration::from_millis(100));
+            }
         }
     }
 }

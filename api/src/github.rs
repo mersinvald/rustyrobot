@@ -82,7 +82,7 @@ impl GitHub {
     }
 
     fn try_rate_limit(&self, cost: u64) -> Result<(), Error> {
-        if self.limit.used + cost <= self.limit.limit {
+        if self.limit.used + cost >= self.limit.limit {
             let now = Utc::now();
             let reset_in = self.limit.reset_at.timestamp() - now.timestamp();
             assert!(reset_in >= 0);
@@ -117,7 +117,7 @@ impl GitHub {
             driver,
             "rate limit",
             "query { rateLimit { limit remaining resetAt } }",
-            Some(&[&"data"])
+            Some(&[&"data", &"rateLimit"])
         )?;
 
         limit.used = limit.limit - limit.remaining;
@@ -139,7 +139,7 @@ impl GitHub {
 
         debug!("{} status: {}", description, status);
         let mut json = json.ok_or(RequestError::EmptyResponse)?;
-        debug!("{} response: {}", description, json);
+        trace!("{} response: {}", description, json);
 
         match status {
             StatusCode::Ok => (),
@@ -163,7 +163,7 @@ pub struct RateLimit {
     limit: u64,
     remaining: u64,
     reset_at: DateTime<Utc>,
-    #[serde(skip_serializing)]
+    #[serde(skip)]
     used: u64,
 }
 

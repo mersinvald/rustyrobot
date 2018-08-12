@@ -24,94 +24,16 @@ pub trait NodeType {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PageInfo {
-    end_cursor: String,
-    has_next_page: bool,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BranchRef {
-    id: String,
-    name: String,
-    prefix: String,
-}
-
-#[derive(Copy, Clone, Debug, Deserialize)]
-enum RepositoryPermissions {
-    ADMIN,
-    READ,
-    WRITE,
-}
-
-#[derive(Copy, Clone, Debug, Deserialize)]
-enum RepositorySubscription {
-    IGNORED,
-    SUBSCRIBED,
-    UNSUBSCRIBED,
-}
-
-
-#[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RepositoryFlags {
-    has_issues_enabled: bool,
-    is_archived: bool,
-    is_fork: bool,
-    is_locked: bool,
-    is_private: bool,
-    #[serde(rename = "viewerHasStarred")]
-    starred: bool,
-    #[serde(rename = "viewerPermission")]
-    permission: RepositoryPermissions,
-    #[serde(rename = "viewerSubscription")]
-    subscribed: RepositorySubscription
-}
-
-#[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RepositoryParent {
-    name_with_owner: String,
-    ssh_url: String,
-    url: String,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RepositoryMetadata {
-    id: String,
-    database_id: u64,
-    created_at: DateTime<Utc>,
-    default_branch_ref: BranchRef,
-    disk_usage: u64,
-    fork_count: u64,
-    parent: Option<RepositoryParent>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Repository {
-    name_with_owner: String,
-    description: String,
-    ssh_url: String,
-    url: String,
-    #[serde(flatten)]
-    meta: RepositoryMetadata,
-    #[serde(flatten)]
-    flags: RepositoryFlags,
-}
-
-impl NodeType for Repository {
-    fn type_str() -> &'static str {
-        "REPOSITORY"
-    }
+    pub end_cursor: Option<String>,
+    pub has_next_page: bool,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchResult<N: NodeType> {
-    page_info: PageInfo,
-    repository_count: u64,
-    nodes: Vec<N>,
+    pub page_info: PageInfo,
+    pub repository_count: u64,
+    pub nodes: Vec<N>,
 }
 
 static REPO_QUERY: &'static str = include_str!(
@@ -126,7 +48,7 @@ use error_chain_failure_interop::ResultExt;
 pub fn search<N>(gh: &mut Handle, query: Query<N>) -> Result<SearchResult<N>, Error>
     where N: NodeType + for<'de> Deserialize<'de> + Debug
 {
-    info!("performing search by query {:?}", query);
+    info!("performing search by {:?}", query);
 
     // Build query
     let search_args = query.to_arg_list();
@@ -134,7 +56,7 @@ pub fn search<N>(gh: &mut Handle, query: Query<N>) -> Result<SearchResult<N>, Er
         .uglify()
         .replace("$ARGS$", &search_args);
 
-    debug!("search query: {}", query);
+    trace!("search {}", query);
 
     // Make a request
     let mut json = gh.query("search", RequestCost::One, query)?;
