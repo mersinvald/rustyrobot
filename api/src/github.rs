@@ -65,14 +65,14 @@ impl GitHub {
         Ok(gh)
     }
 
-    pub fn request<T>(&mut self, request: Request) -> Result<T, Error>
+    pub fn request<T>(&mut self, request: &Request) -> Result<T, Error>
         where T: for<'de> Deserialize<'de>
     {
         self.try_rate_limit(u64::from(request.cost))?;
         let description = request.description;
-        match request.body {
+        match &request.body {
             RequestType::Query(query) => {
-                Self::run_query::<_, &str>(&mut self.driver, description, &query, None)
+                Self::run_query::<_, &str>(&mut self.driver, description, query, None)
             },
             RequestType::Mutation(query) => {
                 unimplemented!()

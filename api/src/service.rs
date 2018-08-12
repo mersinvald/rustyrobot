@@ -95,6 +95,7 @@ impl GithubService {
         // Remove list for clients who hanged up
         let mut hanged_up = vec![];
 
+        // Main loop
         loop {
             for (n, client) in clients.iter().enumerate() {
                 debug!("polling client {:?} message queue", client.id);
@@ -107,24 +108,40 @@ impl GithubService {
                     }
                 };
                 debug!("accepted request from client {:?}", client.id);
-                // Retry loop
-                loop {
-                    match gh.request::<Value>(req) {
-                        Ok(resp) => client.resp_tx.send(Ok(resp)).unwrap_or_else(|_| hanged_up.push(n)),
-                        Err(err) => match err.downcast_ref::<RequestError>() {
-                            Some(RequestError::ExceededRateLimit { ref used, ref limit, ref retry_in }) => {
+
+                // Request timeout retry loop
+                let request_result = loop {
+                    match gh.request::<Value>(&req) {
+                        Ok(resp) => break Ok(resp),
+                        Err(err) => match err.downcast::<RequestError>() {
+                            // If timeout error, sleep and continue the loop
+                            Ok(RequestError::ExceededRateLimit { ref used, ref limit, ref retry_in }) => {
                                 warn!("exceeded rate limit: used({}), limit({}), retrying in {} seconds", used, limit, retry_in);
                                 thread::sleep(Duration::from_secs(*retry_in));
                             },
-                            _ => client.resp_tx.send(Err(err)).unwrap_or_else(|_| hanged_up.push(n))
+                            // If other downcast variant or downcast failed -- break with error
+                            Ok(err) => break Err(Error::from(err)),
+                            Err(err) => break Err(err),
                         }
                     }
+                };
+
+                match request_result {
+                    Ok(_) => info!("request handling for client {:?} finished successfully", client.id),
+                    Err(ref err) => error!("request handling for client {:?} finished with error: {}", client.id, err),
+                }
+
+
+                // If send failed client hang up
+                if client.resp_tx.send(request_result).is_err() {
+                    hanged_up.push(n)
                 }
             }
 
             // Remove hanged-up clients
-            for id in &hanged_up {
-                clients.swap_remove(*id);
+            for idx in hanged_up.drain(..) {
+                warn!("client {:?} hang up", clients[idx].id);
+                clients.swap_remove(idx);
             }
 
             // Clear the hangs-up list
