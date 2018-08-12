@@ -16,5 +16,3 @@ failure = "0.1.2"
 [dependencies.github-rustfmt-bot-api]
 path = "../api"
 
-[dev-dependencies]
-tempfile = "3.0.3"

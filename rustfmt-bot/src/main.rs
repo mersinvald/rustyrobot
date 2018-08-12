@@ -11,12 +11,10 @@ extern crate fern;
 extern crate log;
 extern crate failure;
 
-#[cfg(test)]
-extern crate tempfile;
 
 use chrono::{NaiveDate};
 
-mod db;
+use api::db;
 mod types;
 
 static DB_PATH: &str = "./storage";

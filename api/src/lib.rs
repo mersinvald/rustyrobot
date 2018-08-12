@@ -10,6 +10,10 @@ extern crate chrono;
 extern crate dotenv;
 extern crate github_gql as gh;
 extern crate shell_escape;
+extern crate rocksdb;
+
+#[cfg(test)]
+extern crate tempfile;
 
 #[macro_export]
 macro_rules! json_get_chain {
@@ -27,6 +31,7 @@ mod error_chain_failure_interop;
 pub mod search;
 pub mod github;
 pub mod service;
+pub mod db;
 
 pub static RESOURCES_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/res");
 
