@@ -1,5 +1,5 @@
 [package]
-name = "github-rustfmt-bot"
+name = "github-rustfmt-bot-api"
 version = "0.1.0"
 authors = ["Mike Lubinets <lubinetsm@yandex.ru>"]
 

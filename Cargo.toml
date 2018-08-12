@@ -1,5 +1,5 @@
 [workspace]
 members = [
     "api",
-    "fetcher"
+    "rustfmt-bot"
 ]

@@ -1,6 +1,9 @@
 [package]
-name = "fetcher"
+name = "github-rustfmt-bot"
 version = "0.1.0"
 authors = ["Mike Lubinets <lubinetsm@yandex.ru>"]
 
 [dependencies]
+
+[dependencies.github-rustfmt-bot-api]
+path = "../api"
