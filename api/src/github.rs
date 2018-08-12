@@ -8,6 +8,7 @@ use std::fmt::{Display, Debug};
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use std::time::Duration;
+use std::borrow::Cow;
 use error_chain_failure_interop::ResultExt;
 use search::*;
 use search::query::*;
@@ -20,14 +21,14 @@ pub struct GitHub {
 }
 
 pub enum RequestType {
-    Query(String),
-    Mutation(String),
+    Query(Cow<'static, str>),
+    Mutation(Cow<'static, str>),
 }
 
 pub struct Request {
-    cost: u64,
-    description: &'static str,
-    body: RequestType,
+    pub cost: RequestCost,
+    pub description: Cow<'static, str>,
+    pub body: RequestType,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -69,7 +70,7 @@ impl GitHub {
         where T: for<'de> Deserialize<'de>
     {
         self.try_rate_limit(u64::from(request.cost))?;
-        let description = request.description;
+        let description = &request.description;
         match &request.body {
             RequestType::Query(query) => {
                 Self::run_query::<_, &str>(&mut self.driver, description, query, None)

@@ -7,6 +7,8 @@ use gh::StatusCode;
 use self::query::Query;
 use chrono::{DateTime, Utc};
 use std::fmt::Debug;
+use service::Handle;
+use github::RequestCost;
 
 use json::Value;
 use json;
@@ -121,7 +123,7 @@ static REPO_QUERY: &'static str = include_str!(
 
 use error_chain_failure_interop::ResultExt;
 
-pub fn search<N>(gh: &mut Github, query: Query<N>) -> Result<SearchResult<N>, Error>
+pub fn search<N>(gh: &mut Handle, query: Query<N>) -> Result<SearchResult<N>, Error>
     where N: NodeType + for<'de> Deserialize<'de> + Debug
 {
     info!("performing search by query {:?}", query);
@@ -135,18 +137,7 @@ pub fn search<N>(gh: &mut Github, query: Query<N>) -> Result<SearchResult<N>, Er
     debug!("search query: {}", query);
 
     // Make a request
-    let (headers, status, json) = gh.query::<Value>(
-        &GqlQuery::new_raw(query)
-    ).sync()?;
-
-    debug!("search status: {}", status);
-    let mut json = json.ok_or(RequestError::EmptyResponse)?;
-    debug!("search response: {}", json);
-
-    match status {
-        StatusCode::Ok => (),
-        status => raise!(RequestError::ResponseStatusNotOk { status })
-    }
+    let mut json = gh.query("search", RequestCost::One, query)?;
 
     // TODO: may panic
     let data = json["data"]["search"].take();

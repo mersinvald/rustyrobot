@@ -19,6 +19,8 @@ use search::query::*;
 use github::GitHub;
 use github::Request;
 use github::RequestError;
+use github::RequestType;
+use github::RequestCost;
 
 pub struct GithubService {
     token: String,
@@ -168,4 +170,38 @@ pub struct Handle {
     id: Cow<'static, str>,
     req_tx: RequestTx,
     resp_rx: ResponseRx,
+}
+
+static SERVICE_HANG_UP_PANIC_MSG: &str = "Service channel is closed. Make sure you ::start GitHubService before using the handle.";
+
+impl Handle {
+    pub fn query<T, U>(&self, description: T, cost: RequestCost, query: U) -> Result<Value, Error>
+        where T: Into<Cow<'static, str>>,
+              U: Into<Cow<'static, str>>,
+    {
+        let request = Request {
+            cost,
+            description: description.into(),
+            body: RequestType::Query(query.into())
+        };
+
+        self.request(request)
+    }
+
+    pub fn mutate<T>(&self, description: T, cost: RequestCost, query: T) -> Result<Value, Error>
+        where T: Into<Cow<'static, str>>
+    {
+        let request = Request {
+            cost,
+            description: description.into(),
+            body: RequestType::Mutation(query.into())
+        };
+
+        self.request(request)
+    }
+
+    pub fn request(&self, request: Request) -> Result<Value, Error> {
+        self.req_tx.send(request).expect(SERVICE_HANG_UP_PANIC_MSG);
+        self.resp_rx.recv().expect(SERVICE_HANG_UP_PANIC_MSG)
+    }
 }
