@@ -7,8 +7,10 @@ use std::fmt::{Display, Debug};
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use std::sync::{Arc, Mutex, mpsc};
+use std::sync::mpsc::TryRecvError;
 use std::borrow::Cow;
 use std::thread;
+use std::time::Duration;
 
 use error_chain_failure_interop::ResultExt;
 use search::*;
@@ -16,6 +18,7 @@ use search::query::*;
 
 use github::GitHub;
 use github::Request;
+use github::RequestError;
 
 pub struct GithubService {
     token: String,
@@ -44,7 +47,7 @@ impl GithubService {
         info!("registering new handle for {}", id);
 
         let client = Client {
-            id,
+            id: id.clone(),
             req_rx,
             resp_tx,
         };
@@ -59,33 +62,84 @@ impl GithubService {
         handle
     }
 
-    pub fn start(self) {
+    pub fn start(self) -> Result<(), Error> {
         debug!("starting github client thread");
-        thread::spawn(|| self.thread_main());
+
+        // channel to pass back client initialization error
+        let (status_tx, status_rx) = mpsc::channel();
+        thread::spawn(|| self.thread_main(status_tx));
+
+        // Block for some time in case client initialization failed
+        if let Ok(Err(err)) = status_rx.recv() {
+            Err(err)
+        } else {
+            Ok(())
+        }
     }
 
-    fn thread_main(self) {
+    fn thread_main(self, status_tx: ErrorTx) {
         info!("started github client thread");
-        let clients = self.clients;
-        let gh = GitHub::new(self.token);
+        let mut clients = self.clients;
+        let mut gh = match GitHub::new(self.token) {
+            // Pass initialisation status to the parent thread through channel
+            Ok(gh) => {
+                status_tx.send(Ok(())).unwrap();
+                gh
+            },
+            Err(err) => {
+                status_tx.send(Err(err)).unwrap();
+                return
+            }
+        };
 
         // Remove list for clients who hanged up
         let mut hanged_up = vec![];
 
-        for client in clients {
-            let request = match client.req_rx.recv() {
-
+        loop {
+            for (n, client) in clients.iter().enumerate() {
+                debug!("polling client {:?} message queue", client.id);
+                let req = match client.req_rx.try_recv() {
+                    Ok(req) => req,
+                    Err(TryRecvError::Empty) => continue,
+                    Err(TryRecvError::Disconnected) => {
+                        hanged_up.push(n);
+                        continue
+                    }
+                };
+                debug!("accepted request from client {:?}", client.id);
+                // Retry loop
+                loop {
+                    match gh.request::<Value>(req) {
+                        Ok(resp) => client.resp_tx.send(Ok(resp)).unwrap_or_else(|_| hanged_up.push(n)),
+                        Err(err) => match err.downcast_ref::<RequestError>() {
+                            Some(RequestError::ExceededRateLimit { ref used, ref limit, ref retry_in }) => {
+                                warn!("exceeded rate limit: used({}), limit({}), retrying in {} seconds", used, limit, retry_in);
+                                thread::sleep(Duration::from_secs(*retry_in));
+                            },
+                            _ => client.resp_tx.send(Err(err)).unwrap_or_else(|_| hanged_up.push(n))
+                        }
+                    }
+                }
             }
-        }
 
+            // Remove hanged-up clients
+            for id in &hanged_up {
+                clients.swap_remove(*id);
+            }
+
+            // Clear the hangs-up list
+            hanged_up.clear();
+        }
     }
 }
 
-pub type Response = Result<Value, Error>;
+pub type ResponseResult = Result<Value, Error>;
 type RequestTx = mpsc::Sender<Request>;
 type RequestRx = mpsc::Receiver<Request>;
-type ResponseTx = mpsc::Sender<Response>;
-type ResponseRx = mpsc::Receiver<Response>;
+type ResponseTx = mpsc::Sender<ResponseResult>;
+type ResponseRx = mpsc::Receiver<ResponseResult>;
+type ErrorTx = mpsc::Sender<Result<(), Error>>;
+type ErrorRx = mpsc::Receiver<Result<(), Error>>;
 
 pub struct Client {
     id: Cow<'static, str>,

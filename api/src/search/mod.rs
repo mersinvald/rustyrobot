@@ -145,7 +145,7 @@ pub fn search<N>(gh: &mut Github, query: Query<N>) -> Result<SearchResult<N>, Er
 
     match status {
         StatusCode::Ok => (),
-        status => bail!(RequestError::ResponseStatusNotOk { status })
+        status => raise!(RequestError::ResponseStatusNotOk { status })
     }
 
     // TODO: may panic
@@ -165,7 +165,7 @@ use std::io::{Read, BufRead, Cursor};
 impl Uglify for String {
     fn uglify(self) -> String {
         let mut buffer = String::with_capacity(self.len());
-        let mut reader = Cursor::new(self);
+        let reader = Cursor::new(self);
         for line in reader.lines() {
             // shouldn't ever panic, no IO involved
             let line = line.unwrap();

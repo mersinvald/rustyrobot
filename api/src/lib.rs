@@ -21,6 +21,8 @@ macro_rules! json_get_chain {
     };
 }
 
+#[macro_use]
+mod macros;
 mod error_chain_failure_interop;
 pub mod search;
 pub mod github;

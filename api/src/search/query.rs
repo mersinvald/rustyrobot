@@ -117,7 +117,7 @@ impl<'a, 'b, N: NodeType> QueryBuilder<'a, 'b, N> {
     pub fn build(self) -> Result<Query<'a, 'b, N>, Error> {
         let count = self.count.unwrap_or(10);
         if count == 0 || count > 100 {
-            bail!(QueryBuilderError::InvalidCount { count })
+            raise!(QueryBuilderError::InvalidCount { count })
         }
 
         let query = Query {

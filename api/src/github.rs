@@ -65,9 +65,8 @@ impl GitHub {
         Ok(gh)
     }
 
-    pub fn request<T, S>(&mut self, request: Request) -> Result<T, Error>
-        where T: for<'de> Deserialize<'de>,
-              S: json::value::Index,
+    pub fn request<T>(&mut self, request: Request) -> Result<T, Error>
+        where T: for<'de> Deserialize<'de>
     {
         self.try_rate_limit(u64::from(request.cost))?;
         let description = request.description;
@@ -89,7 +88,7 @@ impl GitHub {
             Err(RequestError::ExceededRateLimit {
                 used: self.limit.used,
                 limit: self.limit.limit,
-                retry_in: reset_in
+                retry_in: reset_in as u64
             }.into())
         } else {
             Ok(())
@@ -143,7 +142,7 @@ impl GitHub {
 
         match status {
             StatusCode::Ok => (),
-            status => bail!(RequestError::ResponseStatusNotOk { status })
+            status => raise!(RequestError::ResponseStatusNotOk { status })
         }
 
         if let Some(selectors) = json_selectors {
@@ -176,5 +175,5 @@ pub enum RequestError {
     #[fail(display = "invalid json schema:\n\texpected {:?}\n\tgot {:?}", expected, got)]
     InvalidJson { expected: String, got: String },
     #[fail(display = "exceeded rate limit:\n\tlimit: {}\n\tused: {}\n\tretry in {:?} seconds", limit, used, retry_in)]
-    ExceededRateLimit { used: u64, limit: u64, retry_in: i64 }
+    ExceededRateLimit { used: u64, limit: u64, retry_in: u64 }
 }
