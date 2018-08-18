@@ -14,6 +14,7 @@ use search::*;
 use search::query::*;
 use json;
 use db;
+use db::stats;
 
 pub struct GitHub {
     driver: Github,
@@ -73,13 +74,30 @@ impl GitHub {
         where T: for<'de> Deserialize<'de>
     {
         self.try_rate_limit(u64::from(request.cost))?;
+
+        // Log statistics
+        stats::increment_stat_counter(&self.db, "requests")?;
+        stats::increment_stat_counter(&self.db, &format!("{}_requests", request.description))?;
+
         let description = &request.description;
-        match &request.body {
+        let result = match &request.body {
             RequestType::Query(query) => {
                 Self::run_query::<_, &str>(&mut self.driver, description, query, None)
             },
             RequestType::Mutation(query) => {
                 unimplemented!()
+            }
+        };
+
+        match result {
+            Ok(data) => {
+                stats::increment_stat_counter(&self.db, "requests_succeeded")?;
+                Ok(data)
+            },
+            Err(err) => {
+                error!("{} request failed: {}", description, err);
+                stats::increment_stat_counter(&self.db, "requests_failed")?;
+                Err(err)
             }
         }
     }
@@ -87,8 +105,8 @@ impl GitHub {
     fn try_rate_limit(&self, cost: u64) -> Result<(), Error> {
         // Limit reserve to allow application to reauth and refetch the limits after restar
         static LIMIT_RESERVE: u64 = 6;
-
         if self.limit.used + cost + LIMIT_RESERVE >= self.limit.limit {
+            stats::increment_stat_counter(&self.db, "request_limit_overflows")?;
             let now = Utc::now();
             let reset_in = self.limit.reset_at.timestamp() - now.timestamp();
             assert!(reset_in >= 0);

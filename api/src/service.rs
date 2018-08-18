@@ -22,14 +22,18 @@ use github::RequestError;
 use github::RequestType;
 use github::RequestCost;
 
+use db::KV;
+
 pub struct GithubService {
+    db: KV,
     token: String,
     clients: Vec<Client>
 }
 
 impl GithubService {
-    pub fn new(token: &str) -> Self {
+    pub fn new(db: KV, token: &str) -> Self {
         GithubService {
+            db,
             token: token.to_string(),
             clients: vec![]
         }
@@ -82,7 +86,7 @@ impl GithubService {
     fn thread_main(self, status_tx: ErrorTx) {
         info!("started github client thread");
         let mut clients = self.clients;
-        let mut gh = match GitHub::new(self.token) {
+        let mut gh = match GitHub::new(self.db, self.token) {
             // Pass initialisation status to the parent thread through channel
             Ok(gh) => {
                 status_tx.send(Ok(())).unwrap();

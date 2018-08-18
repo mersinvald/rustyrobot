@@ -16,6 +16,7 @@ use chrono::{NaiveDate};
 
 use api::db;
 mod types;
+mod fetcher;
 
 static DB_PATH: &str = "./storage";
 
@@ -100,7 +101,7 @@ fn fetch() {
 
     let db = db::open_and_init_db::<db::V1, _>(DB_PATH).unwrap();
 
-    let mut github = api::service::GithubService::new(&token);
+    let mut github = api::service::GithubService::new(db.clone(), &token);
     let mut handle = github.handle(Some("fetcher"));
 
     // Start the service
