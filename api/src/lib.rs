@@ -8,7 +8,8 @@ extern crate serde;
 extern crate serde_json as json;
 extern crate chrono;
 extern crate dotenv;
-extern crate github_gql as gh;
+extern crate github_gql as gh4;
+extern crate github_rs as gh3;
 extern crate shell_escape;
 extern crate rocksdb;
 
@@ -29,6 +30,7 @@ macro_rules! json_get_chain {
 mod macros;
 mod error_chain_failure_interop;
 pub mod search;
+pub mod pr;
 pub mod github;
 pub mod service;
 pub mod db;
@@ -36,10 +38,10 @@ pub mod db;
 pub static RESOURCES_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/res");
 
 use failure::Error;
-use gh::StatusCode;
-use gh::client::Github;
-use gh::query::Query;
-use gh::mutation::Mutation;
+use gh4::StatusCode;
+use gh4::client::Github;
+use gh4::query::Query;
+use gh4::mutation::Mutation;
 use json::Value;
 use std::fmt::{Display, Debug};
 use chrono::{DateTime, Utc};

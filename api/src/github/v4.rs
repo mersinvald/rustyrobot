@@ -1,8 +1,8 @@
 use failure::Error;
-use gh::StatusCode;
-use gh::client::Github;
-use gh::query::Query;
-use gh::mutation::Mutation;
+use gh4::StatusCode;
+use gh4::client::Github;
+use gh4::query::Query;
+use gh4::mutation::Mutation;
 use json::Value;
 use std::fmt::{Display, Debug};
 use chrono::{DateTime, Utc};
@@ -15,6 +15,8 @@ use search::query::*;
 use json;
 use db;
 use db::stats;
+use super::utils;
+use super::RequestCost;
 
 pub struct GitHub {
     driver: Github,
@@ -32,21 +34,6 @@ pub struct Request {
     pub cost: RequestCost,
     pub description: Cow<'static, str>,
     pub body: RequestType,
-}
-
-#[derive(Copy, Clone, Debug)]
-pub enum RequestCost {
-    One,
-    Custom(u64),
-}
-
-impl From<RequestCost> for u64 {
-    fn from(rq: RequestCost) -> u64 {
-        match rq {
-            RequestCost::One => 1,
-            RequestCost::Custom(x) => x
-        }
-    }
 }
 
 impl GitHub {
@@ -73,8 +60,6 @@ impl GitHub {
     pub fn request<T>(&mut self, request: &Request) -> Result<T, Error>
         where T: for<'de> Deserialize<'de>
     {
-        self.try_rate_limit(u64::from(request.cost))?;
-
         // Log statistics
         stats::increment_stat_counter(&self.db, "requests")?;
         stats::increment_stat_counter(&self.db, &format!("{}_requests", request.description))?;
@@ -97,26 +82,24 @@ impl GitHub {
             Err(err) => {
                 error!("{} request failed: {}", description, err);
                 stats::increment_stat_counter(&self.db, "requests_failed")?;
-                Err(err)
+                match err.downcast::<RequestError>() {
+                    Ok(err) => Err(self.fill_rate_limit_error(err)?),
+                    Err(err) => Err(err),
+                }
             }
         }
     }
 
-    fn try_rate_limit(&self, cost: u64) -> Result<(), Error> {
-        // Limit reserve to allow application to reauth and refetch the limits after restar
-        static LIMIT_RESERVE: u64 = 6;
-        if self.limit.used + cost + LIMIT_RESERVE >= self.limit.limit {
-            stats::increment_stat_counter(&self.db, "request_limit_overflows")?;
-            let now = Utc::now();
-            let reset_in = self.limit.reset_at.timestamp() - now.timestamp();
-            assert!(reset_in >= 0);
-            Err(RequestError::ExceededRateLimit {
-                used: self.limit.used,
-                limit: self.limit.limit,
-                retry_in: reset_in as u64
-            }.into())
-        } else {
-            Ok(())
+    fn fill_rate_limit_error(&self, error: RequestError) -> Result<Error, Error> {
+        match error {
+            RequestError::ExceededRateLimit {..} => {
+                stats::increment_stat_counter(&self.db, "request_limit_overflows")?;
+                let now = Utc::now();
+                let retry_in = self.limit.reset_at.timestamp() - now.timestamp();
+                assert!(retry_in >= 0);
+                Err(RequestError::ExceededRateLimit { retry_in: retry_in as u64 }.into())
+            },
+            err => Err(err.into()),
         }
     }
 
@@ -165,6 +148,11 @@ impl GitHub {
         let mut json = json.ok_or(RequestError::EmptyResponse)?;
         trace!("{} response: {}", description, json);
 
+        if utils::is_rate_limit_error_v4(status, &json) {
+            // Raise unfilled rate limit error
+            raise!(RequestError::ExceededRateLimit { retry_in: 0 })
+        }
+
         match status {
             StatusCode::Ok => (),
             status => raise!(RequestError::ResponseStatusNotOk { status })
@@ -199,6 +187,6 @@ pub enum RequestError {
     EmptyResponse,
     #[fail(display = "invalid json schema:\n\texpected {:?}\n\tgot {:?}", expected, got)]
     InvalidJson { expected: String, got: String },
-    #[fail(display = "exceeded rate limit:\n\tlimit: {}\n\tused: {}\n\tretry in {:?} seconds", limit, used, retry_in)]
-    ExceededRateLimit { used: u64, limit: u64, retry_in: u64 }
+    #[fail(display = "exceeded rate limit: retry in {} seconds", retry_in)]
+    ExceededRateLimit { retry_in: u64 }
 }

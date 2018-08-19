@@ -5,6 +5,7 @@ authors = ["Mike Lubinets <lubinetsm@yandex.ru>"]
 
 [dependencies]
 github-gql-rs = "0.0.1"
+github-rs = "0.6.1"
 dotenv = "0.13.0"
 failure = "0.1.2"
 serde = "1.0.71"

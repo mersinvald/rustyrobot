@@ -1,7 +1,7 @@
 use failure::Error;
-use gh::StatusCode;
-use gh::query::Query;
-use gh::mutation::Mutation;
+use gh4::StatusCode;
+use gh4::query::Query;
+use gh4::mutation::Mutation;
 use json::Value;
 use std::fmt::{Display, Debug};
 use chrono::{DateTime, Utc};
@@ -16,10 +16,10 @@ use error_chain_failure_interop::ResultExt;
 use search::*;
 use search::query::*;
 
-use github::GitHub;
-use github::Request;
-use github::RequestError;
-use github::RequestType;
+use github::v4::GitHub;
+use github::v4::Request;
+use github::v4::RequestError;
+use github::v4::RequestType;
 use github::RequestCost;
 
 use db::KV;
@@ -127,8 +127,8 @@ impl GithubService {
                         Ok(resp) => break Ok(resp),
                         Err(err) => match err.downcast::<RequestError>() {
                             // If timeout error, sleep and continue the loop
-                            Ok(RequestError::ExceededRateLimit { ref used, ref limit, ref retry_in }) => {
-                                warn!("exceeded rate limit: used({}), limit({}), retrying in {} seconds", used, limit, retry_in);
+                            Ok(RequestError::ExceededRateLimit { ref retry_in }) => {
+                                warn!("exceeded rate limit: retrying in {} seconds", retry_in);
                                 thread::sleep(Duration::from_secs(*retry_in));
                             },
                             // If other downcast variant or downcast failed -- break with error

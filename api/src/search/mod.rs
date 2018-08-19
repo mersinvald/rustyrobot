@@ -1,9 +1,9 @@
 pub mod query;
 
 use failure::Error;
-use gh::client::Github;
-use gh::query::Query as GqlQuery;
-use gh::StatusCode;
+use gh4::client::Github;
+use gh4::query::Query as GqlQuery;
+use gh4::StatusCode;
 use self::query::Query;
 use chrono::{DateTime, Utc};
 use std::fmt::Debug;
@@ -16,7 +16,7 @@ use json;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use github::RequestError;
+use github::v4::RequestError;
 
 pub trait NodeType: Serialize + DeserializeOwned + Clone + Debug {
     fn id(&self) -> &str {
