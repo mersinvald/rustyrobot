@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use rocksdb::{DB, IteratorMode};
+use rocksdb::{DB, IteratorMode, Options};
 use std::collections::HashMap;
 use std::fs::{self, File};
 use failure::Error;
@@ -13,9 +13,11 @@ pub fn dump_json<P: AsRef<Path>>(db: &DB, base_path: P) -> Result<(), Error> {
     let path = base_path.as_ref().join(path);
     fs::create_dir_all(&path)?;
 
-    dump_cf_json(db, &path, "repositories.json", db::cf::REPOS)?;
-    dump_cf_json(db, &path, "meta.json", db::cf::REPOS_META)?;
-    dump_cf_json(db, &path, "stat.json", db::cf::STATS)?;
+    for cf in db::cf::CFS {
+        let mut filename = cf.to_lowercase();
+        filename.push_str(".json");
+        dump_cf_json(db, &path, &filename, cf)?;
+    }
 
     Ok(())
 }

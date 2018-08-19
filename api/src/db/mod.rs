@@ -27,6 +27,18 @@ pub mod cf {
     pub const FORMATTED_FORKS: &str = "formatted_forks";
     pub const PR_QUEUE: &str = "pull_request_queue";
     pub const CREATED_PRS: &str = "created_pull_requests";
+
+    pub const CFS: &[&str] = &[
+        REPOS,
+        REPOS_META,
+        STATS,
+        FORK_QUEUE,
+        CREATED_FORKS,
+        FORMAT_QUEUE,
+        FORMATTED_FORKS,
+        PR_QUEUE,
+        CREATED_PRS
+    ];
 }
 
 pub struct V1;
@@ -100,18 +112,7 @@ mod tests {
         let cfs = DB::list_cf(&Options::default(), &path).unwrap()
             .into_iter().collect::<HashSet<_>>();
 
-        let valid_cfs = vec![
-            "default",
-            cf::REPOS,
-            cf::REPOS_META,
-            cf::STATS,
-            cf::FORK_QUEUE,
-            cf::CREATED_FORKS,
-            cf::FORMAT_QUEUE,
-            cf::FORMATTED_FORKS,
-            cf::PR_QUEUE,
-            cf::CREATED_PRS,
-        ].into_iter().map(ToOwned::to_owned).collect::<HashSet<_>>();
+        let valid_cfs = cf::CFS.into_iter().map(ToString::to_string).collect::<HashSet<_>>();
 
         assert_eq!(
             cfs, valid_cfs
