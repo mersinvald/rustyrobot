@@ -73,7 +73,7 @@ impl Strategy for DateWindow {
         self.state.date = self.start_date.unwrap();
         let step = Duration::days(self.days_per_request as i64);
 
-        while self.state.date <= Utc::today().naive_utc() {
+        while self.state.date <= Utc::today().naive_utc() && !shared.shutdown.should_shutdown() {
 
             let window_start = self.state.date.format("%Y-%m-%d").to_string();
             let window_end = self.state.date + step;

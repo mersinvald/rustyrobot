@@ -20,12 +20,15 @@ use chrono::Utc;
 use api::db::stats;
 use std::mem::discriminant;
 
+use shutdown::GracefulShutdownHandle;
+
 use chrono::NaiveDate;
 
 struct FetcherState {
     db: KV,
     token: String,
     gh: Handle,
+    shutdown: GracefulShutdownHandle,
 }
 
 pub struct Fetcher<S: Strategy> {
@@ -34,11 +37,12 @@ pub struct Fetcher<S: Strategy> {
 }
 
 impl Fetcher<strategy::DateWindow> {
-    pub fn new_with_defaults(db: KV, token: String, gh: Handle) -> Self {
+    pub fn new_with_default_stracegy(db: KV, token: String, shutdown: GracefulShutdownHandle, gh: Handle) -> Self {
         Fetcher::new(
             db,
             token,
             gh,
+            shutdown,
             strategy::DateWindow {
                 days_per_request: 1,
                 ..Default::default()
@@ -48,12 +52,13 @@ impl Fetcher<strategy::DateWindow> {
 }
 
 impl<S: Strategy> Fetcher<S> {
-    pub fn new(db: KV, token: String, gh: Handle, strategy: S) -> Self {
+    pub fn new(db: KV, token: String, gh: Handle, shutdown: GracefulShutdownHandle, strategy: S) -> Self {
         Fetcher {
             data: FetcherState {
                 db,
                 token,
                 gh,
+                shutdown
             },
             strategy,
         }

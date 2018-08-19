@@ -30,7 +30,7 @@ impl Strategy for Simple {
         let mut page = None;
         let mut out_of_pages = false;
 
-        while !out_of_pages {
+        while !out_of_pages && !shared.shutdown.should_shutdown() {
             let query = query.clone();
 
             let query = if let Some(page) = page.take() {
