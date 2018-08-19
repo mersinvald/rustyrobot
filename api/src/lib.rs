@@ -32,7 +32,6 @@ macro_rules! json_get_chain {
 mod macros;
 mod error_chain_failure_interop;
 pub mod search;
-pub mod pr;
 pub mod github;
 pub mod db;
 

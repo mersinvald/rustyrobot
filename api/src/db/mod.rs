@@ -1,4 +1,5 @@
 pub mod stats;
+pub mod queue;
 
 use std::sync::{Arc, RwLock};
 use std::path::Path;
@@ -17,9 +18,15 @@ pub trait Layout {
 }
 
 pub mod cf {
-    pub static REPOS: &str = "repo";
-    pub static REPOS_META: &str = "repo-meta";
-    pub static STATS: &str = "stats";
+    pub const REPOS: &str = "repo";
+    pub const REPOS_META: &str = "repo-meta";
+    pub const STATS: &str = "stats";
+    pub const FORK_QUEUE: &str = "forking_queue";
+    pub const CREATED_FORKS: &str = "created_forks";
+    pub const FORMAT_QUEUE: &str = "formatting_queue";
+    pub const FORMATTED_FORKS: &str = "formatted_forks";
+    pub const PR_QUEUE: &str = "pull_request_queue";
+    pub const CREATED_PRS: &str = "created_pull_requests";
 }
 
 pub struct V1;
@@ -33,7 +40,13 @@ impl Layout for V1 {
         let db = DB::open_cf(&opts, path, &[
             cf::REPOS,
             cf::STATS,
-            cf::REPOS_META
+            cf::REPOS_META,
+            cf::FORK_QUEUE,
+            cf::CREATED_FORKS,
+            cf::FORMAT_QUEUE,
+            cf::FORMATTED_FORKS,
+            cf::PR_QUEUE,
+            cf::CREATED_PRS,
         ])?;
         Ok(db)
     }
@@ -88,11 +101,17 @@ mod tests {
             .into_iter().collect::<HashSet<_>>();
 
         let valid_cfs = vec![
-            "default".to_string(),
-            cf::REPOS.to_string(),
-            cf::REPOS_META.to_string(),
-            cf::STATS.to_string(),
-        ].into_iter().collect::<HashSet<_>>();
+            "default",
+            cf::REPOS,
+            cf::REPOS_META,
+            cf::STATS,
+            cf::FORK_QUEUE,
+            cf::CREATED_FORKS,
+            cf::FORMAT_QUEUE,
+            cf::FORMATTED_FORKS,
+            cf::PR_QUEUE,
+            cf::CREATED_PRS,
+        ].into_iter().map(ToOwned::to_owned).collect::<HashSet<_>>();
 
         assert_eq!(
             cfs, valid_cfs
