@@ -12,6 +12,7 @@ use serde::{
 pub trait QueueElement: Default + Serialize + DeserializeOwned + Debug {
     const QUEUE_CF: &'static str;
     const ON_DELETE_CF: Option<&'static str>;
+    fn empty_with_id<T: Into<String>>(id: T) -> Self;
     fn key(&self) -> &str;
 }
 
@@ -26,6 +27,14 @@ pub struct Fork {
 impl QueueElement for Fork {
     const QUEUE_CF: &'static str = super::cf::FORK_QUEUE;
     const ON_DELETE_CF: Option<&'static str> = Some(super::cf::CREATED_FORKS);
+
+    fn empty_with_id<T: Into<String>>(id: T) -> Self {
+        Fork {
+            id: id.into(),
+            ..Default::default()
+        }
+    }
+
     fn key(&self) -> &str {
         &self.id
     }

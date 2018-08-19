@@ -7,6 +7,9 @@ use api::search::NodeType;
 use api::search::query::IncompleteQuery;
 use api::db;
 use api::db::stats;
+use api::db::queue;
+use api::db::queue::QueueElement;
+
 
 use super::Strategy;
 use fetcher::FetcherState;
@@ -15,7 +18,7 @@ pub struct Simple;
 
 impl Strategy for Simple {
     /// Run query using the strategy logic
-    fn execute<'a, 'b, N>(&mut self, shared: &FetcherState, query: IncompleteQuery<'a, 'b, N>) -> Result<(), Error>
+    fn execute<'a, 'b, N>(&mut self, shared: &FetcherState<N>, query: IncompleteQuery<'a, 'b, N>) -> Result<(), Error>
         where N: NodeType + Serialize
     {
         // Pre-format for stats db column
@@ -50,6 +53,11 @@ impl Strategy for Simple {
                 db.put_cf(cf, node.id().as_bytes(), json.as_bytes())?;
                 stats::increment_stat_counter(db, &node_stat_key)?;
                 debug!("inserted {} {} info into db", node_typename, node.id());
+
+                // call hooks on node
+                for hook in &shared.hooks {
+                    hook(&node)
+                }
             }
 
             page = page_info.end_cursor;

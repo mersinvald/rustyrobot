@@ -65,7 +65,7 @@ impl Strategy for DateWindow {
     }
 
     /// Run query using the strategy logic
-    fn execute<'a, 'b, N>(&mut self, shared: &FetcherState, query: IncompleteQuery<'a, 'b, N>) -> Result<(), Error>
+    fn execute<'a, 'b, N>(&mut self, shared: &FetcherState<N>, query: IncompleteQuery<'a, 'b, N>) -> Result<(), Error>
         where N: NodeType
     {
         let meta = shared.db.cf_handle(db::cf::REPOS_META).unwrap();

@@ -26,18 +26,21 @@ use shutdown::GracefulShutdownHandle;
 
 use chrono::NaiveDate;
 
-struct FetcherState<'s> {
+type Hook<N> = Box<Fn(&N)>;
+
+struct FetcherState<'s, N> {
     db: &'s DB,
     gh: &'s Github,
     shutdown: &'s GracefulShutdownHandle,
+    hooks: Vec<Hook<N>>
 }
 
-pub struct Fetcher<'a, S: Strategy> {
-    data: FetcherState<'a>,
+pub struct Fetcher<'a, S: Strategy, N> {
+    state: FetcherState<'a, N>,
     strategy: S,
 }
 
-impl<'s> Fetcher<'s, strategy::DateWindow> {
+impl<'s, N: NodeType> Fetcher<'s, strategy::DateWindow, N> {
     pub fn new_with_default_strategy(db: &'s DB, gh: &'s Github, shutdown: &'s GracefulShutdownHandle) -> Self {
         Fetcher::new(
             db,
@@ -51,23 +54,30 @@ impl<'s> Fetcher<'s, strategy::DateWindow> {
     }
 }
 
-impl<'s, S: Strategy> Fetcher<'s, S> {
+impl<'s, S: Strategy, N: NodeType> Fetcher<'s, S, N> {
     pub fn new(db: &'s DB, gh: &'s Github, shutdown: &'s GracefulShutdownHandle, strategy: S) -> Self {
         Fetcher {
-            data: FetcherState {
+            state: FetcherState {
                 db,
                 gh,
-                shutdown
+                shutdown,
+                hooks: vec![],
             },
             strategy,
         }
     }
 
-    pub fn fetch<'qa, 'qb, N>(&mut self, base_query: IncompleteQuery<'qa, 'qb, N>) -> Result<(), Error>
+    pub fn add_node_hook<H: Fn(&N) + 'static>(&mut self, hook: H) {
+        self.state.hooks.push(Box::new(hook))
+    }
+
+    pub fn fetch<'qa, 'qb>(&mut self, base_query: IncompleteQuery<'qa, 'qb, N>) -> Result<(), Error>
         where N: NodeType
     {
-        self.strategy.prefetch_data(&self.data.db)?;
-        self.strategy.execute(&self.data, base_query)?;
+        self.strategy.prefetch_data(&self.state.db)?;
+        self.strategy.execute(&self.state, base_query)?;
         Ok(())
     }
 }
+
+

@@ -87,10 +87,3 @@ pub struct RepositoryMetadata {
     pub fork_count: u64,
     pub parent: Option<RepositoryParent>,
 }
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RepositoryInternalBotMeta {
-
-}
-

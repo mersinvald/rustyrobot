@@ -104,16 +104,23 @@ fn spawn_fetcher_thread(db: KV, token: String, shutdown: GracefulShutdownHandle)
     })
 }
 
+use api::db::queue;
+use api::db::queue::Fork;
+use api::db::queue::QueueElement;
+use api::search::NodeType;
+
 fn fetcher_thread_main(db: KV, token: String, shutdown: GracefulShutdownHandle) {
     let gh = v4::Github::new(db.clone(), &token)
         .expect("failed to create github client");
 
     let query = Query::builder()
         .lang(Lang::Rust)
+        .owner("mersinvald")
         .count(100);
 
     let mut strategy = DateWindow {
         days_per_request: 1,
+        start_date: Some(NaiveDate::from_ymd(2018, 8, 10)),
         ..Default::default()
     };
 
@@ -122,12 +129,30 @@ fn fetcher_thread_main(db: KV, token: String, shutdown: GracefulShutdownHandle) 
 
     while !shutdown.should_shutdown() {
         if Utc::now() >= fetch_time {
-            if let Err(e) = Fetcher::new(&db, &gh, &shutdown, strategy.clone())
-                .fetch::<Repository>(query.clone())
-            {
+            let mut fetcher = Fetcher::new(&db, &gh, &shutdown, strategy.clone());
+
+            // Resetting start_date in strategy so we won't start over in next iteration
+            strategy.start_date = None;
+
+            // Registering hook in order to fill the forking queue
+            let hook_db = db.clone();
+            fetcher.add_node_hook(move |repo: &Repository| {
+                if let Err(err) = queue::enqueue(&hook_db, &Fork::empty_with_id(repo.id())) {
+                    warn!("failed to enqueue repo {}: {}", repo.name_with_owner, err);
+                }
+            });
+
+            // If that fails, fetcher will start from last successful data
+            if let Err(e) = fetcher.fetch(query.clone()) {
                 error!("failed to fetch repositories: {}", e);
+
+            } else {
+                // If success, moving fetch_time one period into the future,
+                // next iteration will start from Utc::today()
+                fetch_time = Utc::now() + fetch_period;
             }
-            fetch_time = Utc::now() + fetch_period;
+
+
         }
         thread::sleep(StdDuration::from_secs(1));
     }
@@ -143,7 +168,7 @@ fn spawn_dumper_thread(db: KV, shutdown: GracefulShutdownHandle) -> thread::Join
 fn dumper_thread_main(db: KV, shutdown: GracefulShutdownHandle) {
     let dump_period = Duration::hours(1);
 
-    let mut dump_time = Utc::now() + dump_period;
+    let mut dump_time = Utc::now();// + dump_period;
 
     while !shutdown.should_shutdown() {
         if Utc::now() >= dump_time {
