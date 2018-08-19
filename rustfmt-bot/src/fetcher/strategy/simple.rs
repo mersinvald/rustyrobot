@@ -46,7 +46,7 @@ impl Strategy for Simple {
 
             for node in nodes {
                 let json = json::to_string(&node)?;
-                let cf = db.cf_handle(db::cf::REPOS).unwrap();
+                let cf = db.cf_handle(N::column_family()).unwrap();
                 db.put_cf(cf, node.id().as_bytes(), json.as_bytes())?;
                 stats::increment_stat_counter(db, &node_stat_key)?;
                 debug!("inserted {} {} info into db", node_typename, node.id());

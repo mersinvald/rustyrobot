@@ -67,7 +67,7 @@ impl Strategy for DateWindow {
     fn execute<'a, 'b, N>(&mut self, shared: &FetcherState, query: IncompleteQuery<'a, 'b, N>) -> Result<(), Error>
         where N: NodeType
     {
-        let meta = shared.db.cf_handle(N::column_family()).unwrap();
+        let meta = shared.db.cf_handle(db::cf::REPOS_META).unwrap();
 
         // At this moment start_date MUST be Some
         self.state.date = self.start_date.unwrap();
