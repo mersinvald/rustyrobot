@@ -3,7 +3,8 @@ use failure::Error;
 use std::marker::PhantomData;
 use super::NodeType;
 
-static DELIMITER: &str = ", ";
+static ARG_LIST_DELIMITER: &str = ", ";
+static QUERY_DELIMITER: &str = " ";
 
 #[derive(Copy, Clone, Debug)]
 pub enum Lang {
@@ -41,14 +42,14 @@ impl<'a, 'b, N: NodeType> Query<'a, 'b, N> {
         let mut list = format!("type: {}, first: {}", N::type_str(), self.count);
 
         if let Some(ref query) = self.query {
-            list.push_str(DELIMITER);
+            list.push_str(ARG_LIST_DELIMITER);
             list.push_str("query: \\\"");
             list.push_str(&query);
             list.push_str("\\\"")
         }
 
         if let Some(ref after) = self.after {
-            list.push_str(DELIMITER);
+            list.push_str(ARG_LIST_DELIMITER);
             list.push_str("after: \\\"");
             list.push_str(&after);
             list.push_str("\\\"")
@@ -82,7 +83,7 @@ impl<'a, 'b, N> IncompleteQuery<'a, 'b, N> {
         // If we already have something in query field, we append
         if let Some(query) = self.query {
             let mut query = query.into_owned();
-            query.push_str(DELIMITER);
+            query.push_str(QUERY_DELIMITER);
             query.push_str(&raw_query);
             self.query = Some(Cow::from(query));
         } else {
@@ -93,17 +94,13 @@ impl<'a, 'b, N> IncompleteQuery<'a, 'b, N> {
     }
 
     pub fn lang(mut self, lang: Lang) -> Self {
-        // If we already have something in query field, we append
-        if let Some(query) = self.query {
-            let mut query = query.into_owned();
-            query.push_str(DELIMITER);
-            query.push_str(lang.as_query_segment());
-            self.query = Some(Cow::from(query));
-        } else {
-            self.query = Some(Cow::from(lang.as_query_segment()));
-        }
+        self.raw_query(lang.as_query_segment())
+    }
 
-        self
+    pub fn owner(mut self, owner: &str) -> Self {
+        self.raw_query(
+            format!("user:{}", owner)
+        )
     }
 
     pub fn count(mut self, count: u8) -> Self {
