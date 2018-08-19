@@ -15,7 +15,7 @@ use api::search::NodeType;
 
 use fetcher::FetcherState;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct DateWindow {
     /// Date step length
     pub days_per_request: u64,
@@ -32,6 +32,7 @@ pub struct DateWindow {
     pub state: DateWindowState,
 }
 
+#[derive(Clone)]
 pub struct DateWindowState {
     date: NaiveDate,
 }

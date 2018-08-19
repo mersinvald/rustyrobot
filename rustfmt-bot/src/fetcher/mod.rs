@@ -10,6 +10,7 @@ use std::fs::File;
 
 use std::time::{Instant, Duration};
 
+use rocksdb::DB;
 use api::db::KV;
 use api::service::Handle;
 
@@ -19,28 +20,27 @@ use std::thread;
 use chrono::Utc;
 use api::db::stats;
 use std::mem::discriminant;
+use std::borrow::Cow;
 
 use shutdown::GracefulShutdownHandle;
 
 use chrono::NaiveDate;
 
-struct FetcherState {
-    db: KV,
-    token: String,
-    gh: Handle,
-    shutdown: GracefulShutdownHandle,
+struct FetcherState<'s> {
+    db: &'s DB,
+    gh: &'s Handle,
+    shutdown: &'s GracefulShutdownHandle,
 }
 
-pub struct Fetcher<S: Strategy> {
-    data: FetcherState,
+pub struct Fetcher<'a, S: Strategy> {
+    data: FetcherState<'a>,
     strategy: S,
 }
 
-impl Fetcher<strategy::DateWindow> {
-    pub fn new_with_default_stracegy(db: KV, token: String, shutdown: GracefulShutdownHandle, gh: Handle) -> Self {
+impl<'s> Fetcher<'s, strategy::DateWindow> {
+    pub fn new_with_default_strategy(db: &'s DB, gh: &'s Handle, shutdown: &'s GracefulShutdownHandle) -> Self {
         Fetcher::new(
             db,
-            token,
             gh,
             shutdown,
             strategy::DateWindow {
@@ -51,12 +51,11 @@ impl Fetcher<strategy::DateWindow> {
     }
 }
 
-impl<S: Strategy> Fetcher<S> {
-    pub fn new(db: KV, token: String, gh: Handle, shutdown: GracefulShutdownHandle, strategy: S) -> Self {
+impl<'s, S: Strategy> Fetcher<'s, S> {
+    pub fn new(db: &'s DB, gh: &'s Handle, shutdown: &'s GracefulShutdownHandle, strategy: S) -> Self {
         Fetcher {
             data: FetcherState {
                 db,
-                token,
                 gh,
                 shutdown
             },
@@ -64,7 +63,7 @@ impl<S: Strategy> Fetcher<S> {
         }
     }
 
-    pub fn fetch<'a, 'b, N>(&mut self, base_query: IncompleteQuery<'a, 'b, N>) -> Result<(), Error>
+    pub fn fetch<'qa, 'qb, N>(&mut self, base_query: IncompleteQuery<'qa, 'qb, N>) -> Result<(), Error>
         where N: NodeType
     {
         self.strategy.prefetch_data(&self.data.db)?;

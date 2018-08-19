@@ -163,6 +163,7 @@ impl GithubService {
                 thread::sleep(Duration::from_millis(100));
             }
         }
+        info!("shutting down github client thread");
     }
 }
 

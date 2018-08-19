@@ -64,11 +64,12 @@ fn init_fern() -> Result<(), Error> {
 }
 
 use api::search::{search, query::{Query, Lang}};
+use api::db::KV;
 use types::Repository;
 use std::thread;
 use chrono::Utc;
 use fetcher::{Fetcher, strategy::DateWindow};
-use shutdown::GracefulShutdown;
+use shutdown::{GracefulShutdown, GracefulShutdownHandle};
 
 fn main() {
     init_fern().unwrap();
@@ -84,54 +85,72 @@ fn main() {
     ctrlc::set_handler(move || {
         info!("got SIGINT (Ctrl-C) signal, shutting down");
         sigint_shutdown.shutdown();
-    }).expect("Couldn't register SIGINT handler");
+    }).expect("couldn't register SIGINT handler");
 
-    // Create fetcher thread
-    let github_handle = github.handle(Some("fetcher"));
-    let shutdown_handle = shutdown.thread_handle();
-    let fetcher_db = db.clone();
-    let fetcher = thread::spawn(move || {
-        let lock = shutdown_handle.started("fetcher");
-
-        let query = Query::builder()
-            .lang(Lang::Rust)
-            .count(100);
-
-        let strategy = DateWindow {
-            days_per_request: 1,
-            start_date: Some(NaiveDate::from_ymd(2016, 1, 1)),
-            ..Default::default()
-        };
-
-        Fetcher::new(fetcher_db, token, github_handle, shutdown_handle, strategy)
-            .fetch::<Repository>(query)
-    });
-
-    // Create dumper thread
-    let dumper_db = db.clone();
-    let shutdown_handle = shutdown.thread_handle();
-    let dumper = thread::spawn(move || {
-        let lock = shutdown_handle.started("dumper");
-        let dump_period = Duration::hours(1);
-
-        let mut dump_time = Utc::now() + dump_period;
-
-        while !shutdown_handle.should_shutdown() {
-            if Utc::now() >= dump_time {
-                if let Err(e) = dump::dump_json(&dumper_db, DUMP_BASE_DIR) {
-                    error!("Failed to create dump: {}", e);
-                }
-                dump_time = Utc::now() + dump_period;
-            }
-            thread::sleep(StdDuration::from_secs(1));
-        }
-    });
+    // Start threads
+    let fetcher = spawn_fetcher_thread(db.clone(), github.handle(Some("fetcher")), shutdown.thread_handle());
+    let dumper = spawn_dumper_thread(db.clone(), shutdown.thread_handle());
 
     // Start the service
     github.start().unwrap();
 
     // Wait until threads are finished
-    while shutdown.threads_running() != 0 {
-        thread::sleep(StdDuration::from_secs(5));
+    fetcher.join().expect("fetcher thread panicked");
+    dumper.join().expect("dumper thread panicked");
+}
+
+fn spawn_fetcher_thread(db: KV, gh: api::service::Handle, shutdown: GracefulShutdownHandle) -> thread::JoinHandle<()> {
+    thread::spawn(|| {
+        let lock = shutdown.started("fetcher");
+        fetcher_thread_main(db, gh, shutdown);
+    })
+}
+
+fn fetcher_thread_main(db: KV, gh: api::service::Handle, shutdown: GracefulShutdownHandle) {
+    let query = Query::builder()
+        .lang(Lang::Rust)
+        .count(100);
+
+    let mut strategy = DateWindow {
+        days_per_request: 1,
+        ..Default::default()
+    };
+
+    let fetch_period = Duration::hours(1);
+    let mut fetch_time = Utc::now();
+
+    while !shutdown.should_shutdown() {
+        if Utc::now() >= fetch_time {
+            if let Err(e) = Fetcher::new(&db, &gh, &shutdown, strategy.clone())
+                .fetch::<Repository>(query.clone())
+            {
+                error!("failed to fetch repositories: {}", e);
+            }
+            fetch_time = Utc::now() + fetch_period;
+        }
+        thread::sleep(StdDuration::from_secs(1));
+    }
+}
+
+fn spawn_dumper_thread(db: KV, shutdown: GracefulShutdownHandle) -> thread::JoinHandle<()> {
+    thread::spawn(move || {
+        let lock = shutdown.started("dumper");
+        dumper_thread_main(db, shutdown)
+    })
+}
+
+fn dumper_thread_main(db: KV, shutdown: GracefulShutdownHandle) {
+    let dump_period = Duration::hours(1);
+
+    let mut dump_time = Utc::now() + dump_period;
+
+    while !shutdown.should_shutdown() {
+        if Utc::now() >= dump_time {
+            if let Err(e) = dump::dump_json(&db, DUMP_BASE_DIR) {
+                error!("Failed to create dump: {}", e);
+            }
+            dump_time = Utc::now() + dump_period;
+        }
+        thread::sleep(StdDuration::from_secs(1));
     }
 }
