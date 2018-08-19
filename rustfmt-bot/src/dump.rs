@@ -8,9 +8,9 @@ use json;
 use api::db;
 
 pub fn dump_json<P: AsRef<Path>>(db: &DB, base_path: P) -> Result<(), Error> {
-    let date = chrono::Utc::today();
-    let path = format!("./dump-{}/", date.format("%Y-%m-%d"));
-    let path = PathBuf::from(path);
+    let now = chrono::Utc::now();
+    let path = format!("dump-{}/", now.format("%Y-%m-%d-%H:%M:%S"));
+    let path = base_path.as_ref().join(path);
     fs::create_dir_all(&path)?;
 
     dump_cf_json(db, &path, "repositories.json", db::cf::REPOS)?;
