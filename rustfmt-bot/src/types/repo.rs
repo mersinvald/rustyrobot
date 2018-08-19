@@ -1,5 +1,6 @@
 use api::search;
 use chrono::{DateTime, Utc};
+use api::db;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -15,6 +16,14 @@ pub struct Repository {
 }
 
 impl search::NodeType for Repository {
+    fn id(&self) -> &str {
+        &self.meta.id
+    }
+
+    fn column_family() -> &'static str {
+        db::cf::REPOS
+    }
+
     fn type_str() -> &'static str {
         "REPOSITORY"
     }

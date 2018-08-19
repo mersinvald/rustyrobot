@@ -13,11 +13,20 @@ use github::RequestCost;
 use json::Value;
 use json;
 
-use serde::Deserialize;
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 use github::RequestError;
 
-pub trait NodeType {
+pub trait NodeType: Serialize + DeserializeOwned + Clone + Debug {
+    fn id(&self) -> &str {
+        panic!("No ID in {} node", Self::type_str())
+    }
+
+    fn column_family() -> &'static str {
+        panic!("No ColumnFamily for {} node", Self::type_str())
+    }
+
     fn type_str() -> &'static str;
 }
 
@@ -30,7 +39,7 @@ pub struct PageInfo {
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SearchResult<N: NodeType> {
+pub struct SearchResult<N> {
     pub page_info: PageInfo,
     pub repository_count: u64,
     pub nodes: Vec<N>,
@@ -45,8 +54,8 @@ static REPO_QUERY: &'static str = include_str!(
 
 use error_chain_failure_interop::ResultExt;
 
-pub fn search<N>(gh: &mut Handle, query: Query<N>) -> Result<SearchResult<N>, Error>
-    where N: NodeType + for<'de> Deserialize<'de> + Debug
+pub fn search<N>(gh: &Handle, query: Query<N>) -> Result<SearchResult<N>, Error>
+    where N: NodeType
 {
     info!("performing search by {:?}", query);
 

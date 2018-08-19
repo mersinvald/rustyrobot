@@ -23,18 +23,20 @@ impl AsQuerySegment for Lang {
 }
 
 #[derive(Clone, Debug)]
-pub struct Query<'a, 'b, N: NodeType> {
+pub struct Query<'a, 'b, N> {
     search_for: PhantomData<N>,
     query: Option<Cow<'a, str>>,
     count: u8,
     after: Option<Cow<'b, str>>,
 }
 
-impl<'a, 'b, N: NodeType> Query<'a, 'b, N> {
-    pub fn builder() -> QueryBuilder<'a, 'b, N> {
-        QueryBuilder::default()
+impl<'a, 'b, N> Query<'a, 'b, N> {
+    pub fn builder() -> IncompleteQuery<'a, 'b, N> {
+        IncompleteQuery::default()
     }
+}
 
+impl<'a, 'b, N: NodeType> Query<'a, 'b, N> {
     pub fn to_arg_list(&self) -> String {
         let mut list = format!("type: {}, first: {}", N::type_str(), self.count);
 
@@ -65,7 +67,7 @@ enum QueryBuilderError {
 }
 
 #[derive(Clone, Debug)]
-pub struct QueryBuilder<'a, 'b, N> {
+pub struct IncompleteQuery<'a, 'b, N> {
     search_for: PhantomData<N>,
     query: Option<Cow<'a, str>>,
     count: Option<u8>,
@@ -73,7 +75,7 @@ pub struct QueryBuilder<'a, 'b, N> {
 }
 
 
-impl<'a, 'b, N: NodeType> QueryBuilder<'a, 'b, N> {
+impl<'a, 'b, N> IncompleteQuery<'a, 'b, N> {
     pub fn raw_query(mut self, raw_query: impl Into<Cow<'a, str>>) -> Self {
         let raw_query = raw_query.into();
 
@@ -131,9 +133,9 @@ impl<'a, 'b, N: NodeType> QueryBuilder<'a, 'b, N> {
     }
 }
 
-impl<'a, 'b, N> Default for QueryBuilder<'a, 'b, N> {
+impl<'a, 'b, N> Default for IncompleteQuery<'a, 'b, N> {
     fn default() -> Self {
-        QueryBuilder {
+        IncompleteQuery {
             search_for: PhantomData,
             query: None,
             count: None,
