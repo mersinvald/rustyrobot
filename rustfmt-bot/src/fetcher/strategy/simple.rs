@@ -23,8 +23,8 @@ impl Strategy for Simple {
         let node_stat_key = format!("fetcher_{}_inserted", node_typename);
 
         // Aliases to shared state
-        let db = &shared.db;
-        let gh = &shared.gh;
+        let db = shared.db;
+        let gh = shared.gh;
 
         // Current page
         let mut page = None;

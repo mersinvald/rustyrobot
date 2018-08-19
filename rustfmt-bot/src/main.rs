@@ -75,7 +75,6 @@ fn main() {
     init_fern().unwrap();
     let db = db::open_and_init_db::<db::V1, _>(DB_PATH).unwrap();
     let token = api::load_token().unwrap();
-    let mut github = api::service::GithubService::new(db.clone(), &token);
 
     // Create graceful shutdown primitives
     let shutdown = GracefulShutdown::new();
@@ -88,25 +87,27 @@ fn main() {
     }).expect("couldn't register SIGINT handler");
 
     // Start threads
-    let fetcher = spawn_fetcher_thread(db.clone(), github.handle(Some("fetcher")), shutdown.thread_handle());
+    let fetcher = spawn_fetcher_thread(db.clone(), token, shutdown.thread_handle());
     let dumper = spawn_dumper_thread(db.clone(), shutdown.thread_handle());
-
-    // Start the service
-    github.start().unwrap();
 
     // Wait until threads are finished
     fetcher.join().expect("fetcher thread panicked");
     dumper.join().expect("dumper thread panicked");
 }
 
-fn spawn_fetcher_thread(db: KV, gh: api::service::Handle, shutdown: GracefulShutdownHandle) -> thread::JoinHandle<()> {
+use api::github::v4;
+
+fn spawn_fetcher_thread(db: KV, token: String, shutdown: GracefulShutdownHandle) -> thread::JoinHandle<()> {
     thread::spawn(|| {
         let lock = shutdown.started("fetcher");
-        fetcher_thread_main(db, gh, shutdown);
+        fetcher_thread_main(db, token, shutdown);
     })
 }
 
-fn fetcher_thread_main(db: KV, gh: api::service::Handle, shutdown: GracefulShutdownHandle) {
+fn fetcher_thread_main(db: KV, token: String, shutdown: GracefulShutdownHandle) {
+    let gh = v4::Github::new(db.clone(), &token)
+        .expect("failed to create github client");
+
     let query = Query::builder()
         .lang(Lang::Rust)
         .count(100);

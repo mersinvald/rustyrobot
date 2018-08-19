@@ -1,12 +1,12 @@
 use failure::Error;
 use gh4::StatusCode;
-use gh4::client::Github;
+use gh4::client::Github as Driver;
 use gh4::query::Query;
 use gh4::mutation::Mutation;
 use json::Value;
 use std::fmt::{Display, Debug};
 use chrono::{DateTime, Utc};
-use serde::Deserialize;
+use serde::de::DeserializeOwned;
 use std::time::Duration;
 use std::borrow::Cow;
 use error_chain_failure_interop::ResultExt;
@@ -15,11 +15,13 @@ use search::query::*;
 use json;
 use db;
 use db::stats;
-use super::utils;
-use super::RequestCost;
+use github::utils;
+use github::GithubClient;
+use github::RequestError;
+use std::cell::RefCell;
 
-pub struct GitHub {
-    driver: Github,
+pub struct Client {
+    driver: RefCell<Driver>,
     db: db::KV,
     login: String,
     limit: RateLimit,
@@ -31,34 +33,14 @@ pub enum RequestType {
 }
 
 pub struct Request {
-    pub cost: RequestCost,
     pub description: Cow<'static, str>,
     pub body: RequestType,
 }
 
-impl GitHub {
-    pub fn new<T>(db: db::KV, token: T) -> Result<Self, Error>
-        where T: AsRef<str> + Display
-    {
-        let mut driver = Github::new(token)
-            .sync()?;
-
-        let login = Self::run_get_login(&mut driver)?;
-
-        let limit = Self::run_get_api_limit(&mut driver)?;
-
-        let gh = GitHub {
-            db,
-            driver,
-            login,
-            limit
-        };
-
-        Ok(gh)
-    }
-
-    pub fn request<T>(&mut self, request: &Request) -> Result<T, Error>
-        where T: for<'de> Deserialize<'de>
+impl GithubClient for Client {
+    type Request = Request;
+    fn request<T>(&self, request: &Request) -> Result<T, Error>
+        where T: DeserializeOwned
     {
         // Log statistics
         stats::increment_stat_counter(&self.db, "requests")?;
@@ -67,7 +49,7 @@ impl GitHub {
         let description = &request.description;
         let result = match &request.body {
             RequestType::Query(query) => {
-                Self::run_query::<_, &str>(&mut self.driver, description, query, None)
+                Self::run_query::<_, &str>(&mut self.driver.borrow_mut(), description, query, None)
             },
             RequestType::Mutation(query) => {
                 unimplemented!()
@@ -89,6 +71,30 @@ impl GitHub {
             }
         }
     }
+}
+
+impl Client {
+    pub fn new<T>(db: db::KV, token: T) -> Result<Self, Error>
+        where T: AsRef<str> + Display
+    {
+        let mut driver = Driver::new(token)
+            .sync()?;
+
+        let login = Self::run_get_login(&mut driver)?;
+
+        let limit = Self::run_get_api_limit(&mut driver)?;
+
+        let driver = RefCell::new(driver);
+
+        let gh = Client {
+            db,
+            driver,
+            login,
+            limit
+        };
+
+        Ok(gh)
+    }
 
     fn fill_rate_limit_error(&self, error: RequestError) -> Result<Error, Error> {
         match error {
@@ -103,7 +109,7 @@ impl GitHub {
         }
     }
 
-    fn run_get_login(driver: &mut Github) -> Result<String, Error> {
+    fn run_get_login(driver: &mut Driver) -> Result<String, Error> {
         info!("logging in via OAuth");
 
         let login: String = Self::run_query(
@@ -117,7 +123,7 @@ impl GitHub {
         Ok(login)
     }
 
-    fn run_get_api_limit(driver: &mut Github) -> Result<RateLimit, Error> {
+    fn run_get_api_limit(driver: &mut Driver) -> Result<RateLimit, Error> {
         info!("requesting rate limit");
 
         let mut limit: RateLimit = Self::run_query(
@@ -136,8 +142,8 @@ impl GitHub {
         Ok(limit)
     }
 
-    fn run_query<T, S>(driver: &mut Github, description: &str, query: &str, json_selectors: Option<&[&S]>) -> Result<T, Error>
-        where T: for<'de> Deserialize<'de>,
+    fn run_query<T, S>(driver: &mut Driver, description: &str, query: &str, json_selectors: Option<&[&S]>) -> Result<T, Error>
+        where T: DeserializeOwned,
               S: json::value::Index,
     {
         let (_, status, json) = driver.query::<Value>(
@@ -155,7 +161,7 @@ impl GitHub {
 
         match status {
             StatusCode::Ok => (),
-            status => raise!(RequestError::ResponseStatusNotOk { status })
+            status => raise!(RequestError::ResponseStatusNotOk { status: status.as_u16() })
         }
 
         if let Some(selectors) = json_selectors {
@@ -177,16 +183,4 @@ pub struct RateLimit {
     reset_at: DateTime<Utc>,
     #[serde(skip)]
     used: u64,
-}
-
-#[derive(Fail, Debug)]
-pub enum RequestError {
-    #[fail(display = "server returned status {}, expected 200 OK", status)]
-    ResponseStatusNotOk { status: StatusCode },
-    #[fail(display = "server returned empty json response")]
-    EmptyResponse,
-    #[fail(display = "invalid json schema:\n\texpected {:?}\n\tgot {:?}", expected, got)]
-    InvalidJson { expected: String, got: String },
-    #[fail(display = "exceeded rate limit: retry in {} seconds", retry_in)]
-    ExceededRateLimit { retry_in: u64 }
 }
