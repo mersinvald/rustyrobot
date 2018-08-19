@@ -98,7 +98,7 @@ impl Client {
 
     fn fill_rate_limit_error(&self, error: RequestError) -> Result<Error, Error> {
         match error {
-            RequestError::ExceededRateLimit {..} => {
+            RequestError::ExceededRateLimit { .. } => {
                 stats::increment_stat_counter(&self.db, "request_limit_overflows")?;
                 let now = Utc::now();
                 let retry_in = self.limit.reset_at.timestamp() - now.timestamp();
@@ -172,7 +172,6 @@ impl Client {
 
         Ok(json::from_value(json)?)
     }
-
 }
 
 #[derive(Clone, Debug, Deserialize)]
