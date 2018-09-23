@@ -13,8 +13,6 @@ use error_chain_failure_interop::ResultExt;
 use search::*;
 use search::query::*;
 use json;
-use db;
-use db::stats;
 use github::utils;
 use github::GithubClient;
 use github::RequestError;
@@ -22,7 +20,6 @@ use std::cell::RefCell;
 
 pub struct Client {
     driver: RefCell<Driver>,
-    db: db::KV,
     login: String,
     limit: RateLimit,
 }
@@ -37,15 +34,13 @@ pub struct Request {
     pub body: RequestType,
 }
 
+// TODO: statistics
+
 impl GithubClient for Client {
     type Request = Request;
     fn request<T>(&self, request: &Request) -> Result<T, Error>
         where T: DeserializeOwned
     {
-        // Log statistics
-        stats::increment_stat_counter(&self.db, "requests")?;
-        stats::increment_stat_counter(&self.db, &format!("{}_requests", request.description))?;
-
         let description = &request.description;
         let result = match &request.body {
             RequestType::Query(query) => {
@@ -58,12 +53,11 @@ impl GithubClient for Client {
 
         match result {
             Ok(data) => {
-                stats::increment_stat_counter(&self.db, "requests_succeeded")?;
+                trace!("request succeeded");
                 Ok(data)
             },
             Err(err) => {
                 error!("{} request failed: {}", description, err);
-                stats::increment_stat_counter(&self.db, "requests_failed")?;
                 match err.downcast::<RequestError>() {
                     Ok(err) => Err(self.fill_rate_limit_error(err)?),
                     Err(err) => Err(err),
@@ -74,7 +68,7 @@ impl GithubClient for Client {
 }
 
 impl Client {
-    pub fn new<T>(db: db::KV, token: T) -> Result<Self, Error>
+    pub fn new<T>(token: T) -> Result<Self, Error>
         where T: AsRef<str> + Display
     {
         let mut driver = Driver::new(token)
@@ -87,7 +81,6 @@ impl Client {
         let driver = RefCell::new(driver);
 
         let gh = Client {
-            db,
             driver,
             login,
             limit
@@ -99,7 +92,6 @@ impl Client {
     fn fill_rate_limit_error(&self, error: RequestError) -> Result<Error, Error> {
         match error {
             RequestError::ExceededRateLimit { .. } => {
-                stats::increment_stat_counter(&self.db, "request_limit_overflows")?;
                 let now = Utc::now();
                 let retry_in = self.limit.reset_at.timestamp() - now.timestamp();
                 assert!(retry_in >= 0);

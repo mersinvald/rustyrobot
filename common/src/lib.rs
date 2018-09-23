@@ -1,3 +1,5 @@
+#![feature(map_get_key_value)]
+
 #[macro_use]
 extern crate failure;
 #[macro_use]
@@ -15,6 +17,7 @@ extern crate github_rs as gh3;
 extern crate shell_escape;
 extern crate rdkafka;
 extern crate threadpool;
+extern crate uuid;
 
 #[cfg(test)]
 extern crate tempfile;

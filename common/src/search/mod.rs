@@ -20,15 +20,10 @@ pub trait NodeType: Serialize + DeserializeOwned + Clone + Debug {
     fn id(&self) -> &str {
         panic!("No ID in {} node", Self::type_str())
     }
-
-    fn column_family() -> &'static str {
-        panic!("No ColumnFamily for {} node", Self::type_str())
-    }
-
     fn type_str() -> &'static str;
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PageInfo {
     pub end_cursor: Option<String>,

@@ -3,4 +3,4 @@ pub mod util;
 
 use serde::{Serialize, de::DeserializeOwned};
 
-pub trait Event: Serialuze + DeserializeOwned {}
+pub trait Event: Serialize + DeserializeOwned {}

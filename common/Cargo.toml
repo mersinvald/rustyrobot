@@ -17,6 +17,7 @@ log = "0.4.3"
 lazy_static = "1.1.0"
 rdkafka = "0.17.0"
 threadpool = "1.7.1"
+uuid = { version = "0.7.1", features = ["serde", "v4"] }
 
 [dev-dependencies]
 tempfile = "3.0.3"

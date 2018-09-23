@@ -22,16 +22,14 @@ use github::v4::client::RequestType;
 use github::RequestError;
 use github::GithubClient;
 
-use db::KV;
-
 pub struct Github {
     client: Client,
 }
 
 impl Github {
-    pub fn new(db: KV, token: &str) -> Result<Self, Error> {
+    pub fn new(token: &str) -> Result<Self, Error> {
         Ok(Github {
-            client: Client::new(db, token)?
+            client: Client::new(token)?
         })
     }
 

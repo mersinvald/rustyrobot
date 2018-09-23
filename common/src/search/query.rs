@@ -96,8 +96,7 @@ impl IncompleteQuery {
         let raw_query = raw_query.into();
 
         // If we already have something in query field, we append
-        if let Some(query) = self.query {
-            let mut query = query.into_owned();
+        if let Some(mut query) = self.query {
             query.push_str(QUERY_DELIMITER);
             query.push_str(&raw_query);
             self.query = Some(query);
@@ -153,7 +152,7 @@ impl IncompleteQuery {
 impl Default for IncompleteQuery {
     fn default() -> Self {
         IncompleteQuery {
-            search_for: PhantomData,
+            search_for: SearchFor::Undefined,
             query: None,
             count: None,
             after: None,
