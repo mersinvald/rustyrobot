@@ -35,7 +35,7 @@ pub struct PageInfo {
     pub has_next_page: bool,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchResult<N> {
     pub page_info: PageInfo,
@@ -52,7 +52,7 @@ static REPO_QUERY: &'static str = include_str!(
 
 use error_chain_failure_interop::ResultExt;
 
-pub fn search<N>(gh: &Github, query: Query<N>) -> Result<SearchResult<N>, Error>
+pub fn search<N>(gh: &Github, query: Query) -> Result<SearchResult<N>, Error>
     where N: NodeType
 {
     info!("performing search by {:?}", query);

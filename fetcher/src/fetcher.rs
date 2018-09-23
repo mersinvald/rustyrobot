@@ -1,6 +1,4 @@
-pub mod strategy;
-
-pub use self::strategy::Strategy;
+use strategy::Strategy;
 
 use std::sync::Arc;
 

@@ -1,10 +1,9 @@
-extern crate github_rustfmt_bot_api as api;
+extern crate rustyrobot_common as api;
 
 #[macro_use]
 extern crate serde_derive;
 extern crate serde;
 extern crate serde_json as json;
-extern crate rocksdb;
 extern crate chrono;
 extern crate fern;
 #[macro_use]
@@ -12,17 +11,9 @@ extern crate log;
 extern crate failure;
 extern crate ctrlc;
 
-
-use chrono::{NaiveDate};
-
-use api::db;
-mod types;
+mod strategy;
 mod fetcher;
-mod dump;
-mod shutdown;
 
-static DB_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/storage/");
-static DUMP_BASE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/dumps/");
 
 use failure::Error;
 use std::io::Write;
@@ -50,12 +41,11 @@ fn init_fern() -> Result<(), Error> {
                 message
             ))
         })
-        .level_for("github_rustfmt_bot", log::LevelFilter::Debug)
-        .level_for("github_rustfmt_bot_api", log::LevelFilter::Debug)
+        .level_for("fetcher", log::LevelFilter::Debug)
+        .level_for("rustyrobot_common", log::LevelFilter::Debug)
         .level(log::LevelFilter::Warn)
         .chain(log_tx)
         .chain(std::io::stdout())
-        .chain(File::create("bot.log").unwrap())
         .apply()?;
 
     info!("logger initialised");
@@ -88,11 +78,9 @@ fn main() {
 
     // Start threads
     let fetcher = spawn_fetcher_thread(db.clone(), token, shutdown.thread_handle());
-    let dumper = spawn_dumper_thread(db.clone(), shutdown.thread_handle());
 
     // Wait until threads are finished
     fetcher.join().expect("fetcher thread panicked");
-    dumper.join().expect("dumper thread panicked");
 }
 
 use api::github::v4;
@@ -153,29 +141,6 @@ fn fetcher_thread_main(db: KV, token: String, shutdown: GracefulShutdownHandle) 
             }
 
 
-        }
-        thread::sleep(StdDuration::from_secs(1));
-    }
-}
-
-fn spawn_dumper_thread(db: KV, shutdown: GracefulShutdownHandle) -> thread::JoinHandle<()> {
-    thread::spawn(move || {
-        let lock = shutdown.started("dumper");
-        dumper_thread_main(db, shutdown)
-    })
-}
-
-fn dumper_thread_main(db: KV, shutdown: GracefulShutdownHandle) {
-    let dump_period = Duration::hours(1);
-
-    let mut dump_time = Utc::now();// + dump_period;
-
-    while !shutdown.should_shutdown() {
-        if Utc::now() >= dump_time {
-            if let Err(e) = dump::dump_json(&db, DUMP_BASE_DIR) {
-                error!("Failed to create dump: {}", e);
-            }
-            dump_time = Utc::now() + dump_period;
         }
         thread::sleep(StdDuration::from_secs(1));
     }

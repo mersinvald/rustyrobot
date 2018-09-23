@@ -1,5 +1,5 @@
 [package]
-name = "github-rustfmt-bot-api"
+name = "rustyrobot-common"
 version = "0.1.0"
 authors = ["Mike Lubinets <lubinetsm@yandex.ru>"]
 
@@ -14,8 +14,9 @@ serde_derive = "1.0.71"
 chrono = { version = "0.4.5", features = ["serde"] }
 shell-escape = "0.1.4"
 log = "0.4.3"
-rocksdb = "0.10.1"
 lazy_static = "1.1.0"
+rdkafka = "0.17.0"
+threadpool = "1.7.1"
 
 [dev-dependencies]
 tempfile = "3.0.3"

@@ -1,6 +1,6 @@
-use api::search;
+use search;
 use chrono::{DateTime, Utc};
-use api::db;
+use db;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

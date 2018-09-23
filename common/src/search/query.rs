@@ -23,23 +23,38 @@ impl AsQuerySegment for Lang {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct Query<'a, 'b, N> {
-    search_for: PhantomData<N>,
-    query: Option<Cow<'a, str>>,
-    count: u8,
-    after: Option<Cow<'b, str>>,
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+pub enum SearchFor {
+    Repository,
+    Undefined
 }
 
-impl<'a, 'b, N> Query<'a, 'b, N> {
-    pub fn builder() -> IncompleteQuery<'a, 'b, N> {
+impl SearchFor {
+    fn type_str(&self) -> &'static str {
+        match *self {
+            SearchFor::Repository => "",
+            SearchFor::Undefined => panic!("Search target is not defined"),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Query {
+    search_for: SearchFor,
+    query: Option<String>,
+    count: u8,
+    after: Option<String>,
+}
+
+impl Query {
+    pub fn builder() -> IncompleteQuery {
         IncompleteQuery::default()
     }
 }
 
-impl<'a, 'b, N: NodeType> Query<'a, 'b, N> {
+impl Query {
     pub fn to_arg_list(&self) -> String {
-        let mut list = format!("type: {}, first: {}", N::type_str(), self.count);
+        let mut list = format!("type: {}, first: {}", self.search_for.type_str(), self.count);
 
         if let Some(ref query) = self.query {
             list.push_str(ARG_LIST_DELIMITER);
@@ -68,16 +83,16 @@ enum QueryBuilderError {
 }
 
 #[derive(Clone, Debug)]
-pub struct IncompleteQuery<'a, 'b, N> {
-    search_for: PhantomData<N>,
-    query: Option<Cow<'a, str>>,
+pub struct IncompleteQuery {
+    search_for: SearchFor,
+    query: Option<String>,
     count: Option<u8>,
-    after: Option<Cow<'b, str>>,
+    after: Option<String>,
 }
 
 
-impl<'a, 'b, N> IncompleteQuery<'a, 'b, N> {
-    pub fn raw_query(mut self, raw_query: impl Into<Cow<'a, str>>) -> Self {
+impl IncompleteQuery {
+    pub fn raw_query(mut self, raw_query: impl Into<String>) -> Self {
         let raw_query = raw_query.into();
 
         // If we already have something in query field, we append
@@ -85,11 +100,16 @@ impl<'a, 'b, N> IncompleteQuery<'a, 'b, N> {
             let mut query = query.into_owned();
             query.push_str(QUERY_DELIMITER);
             query.push_str(&raw_query);
-            self.query = Some(Cow::from(query));
+            self.query = Some(query);
         } else {
             self.query = Some(raw_query);
         }
 
+        self
+    }
+
+    pub fn search_for(mut self, t: SearchFor) -> Self {
+        self.search_for = t;
         self
     }
 
@@ -108,12 +128,12 @@ impl<'a, 'b, N> IncompleteQuery<'a, 'b, N> {
         self
     }
 
-    pub fn after(mut self, after: impl Into<Cow<'b, str>>) -> Self {
+    pub fn after(mut self, after: impl Into<String>) -> Self {
         self.after = Some(after.into());
         self
     }
 
-    pub fn build(self) -> Result<Query<'a, 'b, N>, Error> {
+    pub fn build(self) -> Result<Query, Error> {
         let count = self.count.unwrap_or(10);
         if count == 0 || count > 100 {
             raise!(QueryBuilderError::InvalidCount { count })
@@ -130,7 +150,7 @@ impl<'a, 'b, N> IncompleteQuery<'a, 'b, N> {
     }
 }
 
-impl<'a, 'b, N> Default for IncompleteQuery<'a, 'b, N> {
+impl Default for IncompleteQuery {
     fn default() -> Self {
         IncompleteQuery {
             search_for: PhantomData,

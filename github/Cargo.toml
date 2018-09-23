@@ -1,0 +1,8 @@
+[package]
+name = "github"
+version = "0.1.0"
+authors = ["Mike Lubinets <lubinetsm@yandex.ru>"]
+
+[dependencies]
+rustyrobot-common = { path = "../common" }
+rdkafka = "0.17.0"

@@ -1,5 +1,11 @@
 [workspace]
 members = [
-    "api",
-    "rustfmt-bot"
+    "common",
+    "fetcher",
+    "dumper",
+    "forker",
+    "formatter",
+    "fixer",
+    "pr-issuer",
+    "github"
 ]

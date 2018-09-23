@@ -1,10 +1,9 @@
 [package]
-name = "github-rustfmt-bot"
+name = "dumper"
 version = "0.1.0"
 authors = ["Mike Lubinets <lubinetsm@yandex.ru>"]
 
 [dependencies]
-rocksdb = "0.10.1"
 serde_derive = "1.0.71"
 serde = "1.0.71"
 serde_json = "1.0.24"
@@ -14,6 +13,5 @@ fern = "0.5.6"
 failure = "0.1.2"
 ctrlc = "3.1.1"
 
-[dependencies.github-rustfmt-bot-api]
-path = "../api"
-
+[dependencies.rustyrobot-common]
+path = "../common"

@@ -13,7 +13,8 @@ extern crate dotenv;
 extern crate github_gql as gh4;
 extern crate github_rs as gh3;
 extern crate shell_escape;
-extern crate rocksdb;
+extern crate rdkafka;
+extern crate threadpool;
 
 #[cfg(test)]
 extern crate tempfile;
@@ -33,7 +34,9 @@ mod macros;
 mod error_chain_failure_interop;
 pub mod search;
 pub mod github;
-pub mod db;
+pub mod types;
+pub mod shutdown;
+pub mod kafka;
 
 pub static RESOURCES_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/res");
 
