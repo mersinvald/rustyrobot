@@ -18,6 +18,7 @@ extern crate shell_escape;
 extern crate rdkafka;
 extern crate threadpool;
 extern crate uuid;
+extern crate env_logger;
 
 #[cfg(test)]
 extern crate tempfile;
