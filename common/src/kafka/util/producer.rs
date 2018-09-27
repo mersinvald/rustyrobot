@@ -123,11 +123,12 @@ impl ThreadedProducerHandle {
 
 impl Drop for ThreadedProducer {
     fn drop(&mut self) {
-        if self.shutdown.should_shutdown() {
-            if let Some(poller) = self.poller.take() {
-                poller.join()
-                    .unwrap_or_else(|err| error!("producer poller thread have panicked: {:?}", err))
-            }
+        if !self.shutdown.should_shutdown() {
+            error!("called ThreadedProducer::drop is non-shutdown phase, would block forever");
+        }
+        if let Some(poller) = self.poller.take() {
+            poller.join()
+                .unwrap_or_else(|err| error!("producer poller thread have panicked: {:?}", err))
         }
     }
 }
