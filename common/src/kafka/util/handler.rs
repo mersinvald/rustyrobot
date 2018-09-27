@@ -14,6 +14,7 @@ use std::thread;
 use std::time::Duration;
 use std::marker::PhantomData;
 use std::sync::Arc;
+use std::fmt::Debug;
 
 use shutdown::GracefulShutdownHandle;
 
@@ -76,7 +77,7 @@ pub struct HandlerThreadPool<I, O> {
 }
 
 impl<I, O> HandlerThreadPool<I, O>
-    where I: DeserializeOwned + Send + 'static,
+    where I: DeserializeOwned + Send + Debug + 'static,
           O: Serialize + Send + 'static
 {
     pub fn builder() -> HandlerThreadPoolBuilder<I, O> {
@@ -84,6 +85,8 @@ impl<I, O> HandlerThreadPool<I, O>
     }
 
     pub fn start(self, shutdown: GracefulShutdownHandle) -> Result<(), Error> {
+        info!("starting thread-pooled Handler {}/{} -> {:?}", self.input_topic, self.group, self.output_topic);
+
         let producer: BaseProducer = ClientConfig::new()
             .set("bootstrap.servers", "127.0.0.1:9092")
             .set("produce.offset.report", "true")
@@ -105,8 +108,10 @@ impl<I, O> HandlerThreadPool<I, O>
         let producer_poller_handle = {
             let producer = producer.clone();
             let shutdown = shutdown.clone();
+            let thread_id = format!("producer poller {}/{} -> {:?}", self.input_topic, self.group, self.output_topic);
             thread::spawn(move || {
-                let lock = shutdown.started("producer poller");
+                let thread_id = format!("{} ({:?})", thread_id, thread::current().id());
+                let lock = shutdown.started(thread_id);
                 while !shutdown.should_shutdown() {
                     producer.poll(Duration::from_millis(200));
                 }
@@ -118,7 +123,10 @@ impl<I, O> HandlerThreadPool<I, O>
         while !shutdown.should_shutdown() {
             // Filter-out errors
             let message = match consumer.poll(Duration::from_millis(200)) {
-                Some(Ok(msg)) => msg,
+                Some(Ok(msg)) => {
+                    debug!("received message from {}: key: {:?}, offset {}", self.input_topic, msg.key_view::<str>(), msg.offset());
+                    msg
+                },
                 Some(Err(e)) => {
                     warn!("Failed to receive message: {}", e);
                     continue
@@ -141,7 +149,10 @@ impl<I, O> HandlerThreadPool<I, O>
 
             // Parse json. By convention all messages must be json
             let payload: I = match json::from_slice(payload) {
-                Ok(payload) => payload,
+                Ok(payload) => {
+                    trace!("payload: {:?}", payload);
+                    payload
+                },
                 Err(e) => {
                     error!("Payload is invalid json: {}", e);
                     continue
@@ -151,6 +162,7 @@ impl<I, O> HandlerThreadPool<I, O>
             // Filter out by user-defined filter
             if let Some(filter) = self.filter.clone() {
                 if !filter.exec(&payload) {
+                    trace!("received message filtered out");
                     continue
                 }
             }
@@ -161,11 +173,16 @@ impl<I, O> HandlerThreadPool<I, O>
             let handler = self.handler.clone();
             let out_topic = self.output_topic.clone();
             self.pool.execute(move || {
+                debug!("handler job started");
+
                 // Call user-defined handler
                 let result = match handler.exec(payload) {
-                    Ok(result) => result,
+                    Ok(result) => {
+                        trace!("message handled successfuly");
+                        result
+                    },
                     Err(e) => {
-                        error!("Handler failed: {}", e);
+                        error!("handler failed: {}", e);
                         return;
                     }
                 };
@@ -174,7 +191,7 @@ impl<I, O> HandlerThreadPool<I, O>
                 let json = match json::to_vec(&result) {
                     Ok(json) => json,
                     Err(e) => {
-                        error!("Failed to encode json");
+                        error!("failed to encode json");
                         return;
                     }
                 };
@@ -193,6 +210,7 @@ impl<I, O> HandlerThreadPool<I, O>
                                 },
                             }
                     }
+                    debug!("produced response into {}", out_topic);
                 }
             })
         }
@@ -230,6 +248,11 @@ impl<I, O> HandlerThreadPoolBuilder<I, O>
 
     pub fn group(mut self, group: impl AsRef<str>) -> Self {
         self.group = Some(group.as_ref().to_owned());
+        self
+    }
+
+    pub fn respond_to(mut self, topic: impl AsRef<str>) -> Self {
+        self.output_topic = Some(topic.as_ref().to_owned());
         self
     }
 
@@ -294,5 +317,100 @@ impl<I, O> Default for HandlerThreadPoolBuilder<I, O> {
             filter: None,
             handler: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use shutdown::GracefulShutdown;
+    use std::thread;
+    use env_logger;
+    use uuid::Uuid;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    struct Payload(String);
+
+    #[test]
+    fn interconnection() {
+        env_logger::try_init().ok();
+        let shutdown = GracefulShutdown::new();
+
+        let supplier = {
+            let shutdown = shutdown.thread_handle();
+            thread::spawn(move || supplier(shutdown))
+        };
+
+        let client_1 = {
+            let shutdown = shutdown.thread_handle();
+            thread::spawn(move || client("client1", shutdown))
+        };
+
+        let client_2 = {
+            let shutdown = shutdown.thread_handle();
+            thread::spawn(move || client("client2", shutdown))
+        };
+
+        thread::sleep(Duration::from_secs(10));
+        shutdown.shutdown();
+        supplier.join().unwrap();
+        client_1.join().unwrap();
+        client_2.join().unwrap();
+    }
+
+    fn supplier(shutdown: GracefulShutdownHandle) {
+        HandlerThreadPool::builder()
+            .pool_size(4)
+            .group("handler.test.supplier")
+            .subscribe("rustyrobot.test.handler.in")
+            .respond_to("rustyrobot.test.handler.out")
+            .handler(|message: Payload| {
+                Ok(message)
+            })
+            .build()
+            .unwrap()
+            .start(shutdown.clone());
+    }
+
+    fn client(id: &'static str, shutdown: GracefulShutdownHandle) {
+        let producer: BaseProducer = ClientConfig::new()
+            .set("bootstrap.servers", "127.0.0.1:9092")
+            .set("produce.offset.report", "true")
+            .set("message.timeout.ms", "5000")
+            .create()
+            .unwrap();
+
+        let send_cnt = 10;
+
+        for _ in 0..send_cnt {
+            let payload = Payload(id.to_string());
+            let payload = json::to_string(&payload).unwrap();
+            producer.send(
+                BaseRecord::to("rustyrobot.test.handler.in")
+                    .key(&Uuid::new_v4().to_string())
+                    .payload(payload.as_bytes())
+            ).unwrap();
+        }
+
+        producer.flush(Duration::from_secs(10));
+
+        let counter = Arc::new(Mutex::new(0));
+        let counter_copy = counter.clone();
+        HandlerThreadPool::builder()
+            .pool_size(4)
+            .group(&format!("handler.test.client.{}", id))
+            .subscribe("rustyrobot.test.handler.out")
+            .filter(move |msg: &Payload| msg.0 == id)
+            .handler(move |msg: Payload| {
+                assert_eq!(msg.0, id);
+                *counter_copy.lock().unwrap() += 1;
+                Ok(())
+            })
+            .build()
+            .unwrap()
+            .start(shutdown.clone());
+
+        assert_eq!(send_cnt, *counter.lock().unwrap());
     }
 }

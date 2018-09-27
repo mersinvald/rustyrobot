@@ -13,6 +13,8 @@ function create_topic() {
 
 # Testing topics
 create_topic "rustyrobot.test.state.save_and_restore" 1
+create_topic "rustyrobot.test.handler.in" 1
+create_topic "rustyrobot.test.handler.out" 1
 
 
 # Github microservice input & output
