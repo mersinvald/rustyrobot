@@ -4,7 +4,9 @@ extern crate ctrlc;
 extern crate failure;
 #[macro_use]
 extern crate log;
-extern crate env_logger;
+#[macro_use]
+extern crate fern;
+extern crate chrono;
 
 use std::sync::{Arc, Mutex};
 use failure::Error;
@@ -38,8 +40,30 @@ use rdkafka::{
     }
 };
 
+fn init_fern() -> Result<(), Error> {
+    fern::Dispatch::new()
+        .format(|out, message, record| {
+            out.finish(format_args!(
+                "{}[{}][{}] {}",
+                chrono::Local::now().format("[%Y-%m-%d][%H:%M:%S]"),
+                record.target(),
+                record.level(),
+                message
+            ))
+        })
+        .level_for("fetcher", log::LevelFilter::Debug)
+        .level_for("rustyrobot_common", log::LevelFilter::Debug)
+        .level(log::LevelFilter::Warn)
+        .chain(std::io::stdout())
+        .apply()?;
+
+    info!("logger initialised");
+
+    Ok(())
+}
+
 fn main() {
-    env_logger::init();
+    init_fern().expect("failed to setup logger");
 
     let shutdown = GracefulShutdown::new();
     let shutdown_handle = shutdown.thread_handle();
@@ -96,7 +120,7 @@ fn main() {
                             }
                             increment_stat_counter("repository fetch requests handled");
                         },
-                        Undefined => panic!("search_for is Undefined: can't fetch undefined entity")
+                        SearchFor::Undefined => panic!("search_for is Undefined: can't fetch an undefined entity")
                     }
                 }
             };
