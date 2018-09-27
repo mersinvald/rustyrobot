@@ -1,7 +1,7 @@
 use rdkafka::{
     message::{BorrowedMessage, OwnedMessage, Message},
     producer::{BaseRecord, BaseProducer},
-    consumer::{Consumer, BaseConsumer},
+    consumer::{Consumer, BaseConsumer, CommitMode},
     ClientConfig,
 };
 
@@ -21,65 +21,18 @@ use std::fmt::Debug;
 use shutdown::GracefulShutdownHandle;
 use kafka::util::producer::ThreadedProducer;
 
-pub struct Handler<I, O> {
-    f: Arc<dyn Fn(I, &mut dyn FnMut(O)) -> Result<(), Error> + Send + Sync + 'static>,
-}
-
-impl<I, O> Clone for Handler<I, O> {
-    fn clone(&self) -> Self {
-        Handler {
-            f: self.f.clone(),
-        }
-    }
-}
-
-impl<I, O> Handler<I, O> {
-    fn new(f: impl Fn(I, &mut dyn FnMut(O)) -> Result<(), Error> + Send + Sync + 'static) -> Self {
-        Handler {
-            f: Arc::new(f),
-        }
-    }
-
-    fn exec(&self, input: I, mut callback: impl FnMut(O) + 'static) -> Result<(), Error> {
-        (self.f)(input, &mut callback)
-    }
-}
-
-pub struct Filter<I> {
-    f: Arc<dyn Fn(&I) -> bool + Send + Sync + 'static>,
-}
-
-impl<I> Filter<I> {
-    fn new(f: impl Fn(&I) -> bool + Send + Sync + 'static) -> Self {
-        Filter {
-            f: Arc::new(f),
-        }
-    }
-
-    fn exec(&self, input: &I) -> bool {
-        (self.f)(input)
-    }
-}
-
-impl<I> Clone for Filter<I> {
-    fn clone(&self) -> Self {
-        Filter {
-            f: self.f.clone()
-        }
-    }
-}
-
-pub struct HandlerThreadPool<I, O> {
+pub struct HandlingConsumer<I, O> {
     pool: ThreadPool,
     group: String,
     input_topic: String,
     output_topic: Option<String>,
-    filter: Option<Filter<I>>,
-    handler: Handler<I, O>,
+    filter: Option<Box<dyn Fn(&I) -> bool>>,
+    key: Option<Box<dyn Fn(&O) -> Vec<u8>>>,
+    handler: Box<dyn Fn(I, &mut dyn FnMut(O)) -> Result<(), HandlerError>>,
     _marker: PhantomData<(I, O)>,
 }
 
-impl<I, O> HandlerThreadPool<I, O>
+impl<I, O> HandlingConsumer<I, O>
     where I: DeserializeOwned + Send + Debug + 'static,
           O: Serialize + Send + 'static,
 {
@@ -99,8 +52,9 @@ impl<I, O> HandlerThreadPool<I, O>
             .set("group.id", &self.group)
             .set("enable.partition.eof", "false")
             .set("session.timeout.ms", "6000")
-            .set("enable.auto.commit", "true")
+            .set("enable.auto.commit", "false")
             .set("auto.offset.reset", "latest")
+            .set("heartbeat.interval.ms", "1000")
             .create()?;
 
         consumer.subscribe(&[self.input_topic.as_ref()])?;
@@ -108,7 +62,7 @@ impl<I, O> HandlerThreadPool<I, O>
         // start polling the consumer
         while !shutdown.should_shutdown() {
             // Filter-out errors
-            let message = match consumer.poll(Duration::from_millis(200)) {
+            let borrowed_message = match consumer.poll(Duration::from_millis(200)) {
                 Some(Ok(msg)) => {
                     debug!("received message from {}: key: {:?}, offset {}", self.input_topic, msg.key_view::<str>(), msg.offset());
                     msg
@@ -124,7 +78,7 @@ impl<I, O> HandlerThreadPool<I, O>
             };
 
             // Filter out empty messages
-            let message = message.detach();
+            let message = borrowed_message.detach();
             let payload = match message.payload() {
                 Some(payload) => payload,
                 None => {
@@ -141,55 +95,76 @@ impl<I, O> HandlerThreadPool<I, O>
                 },
                 Err(e) => {
                     error!("Payload is invalid json: {}", e);
+                    consumer.commit_message(&borrowed_message, CommitMode::Sync)?;
                     continue
                 }
             };
 
             // Filter out by user-defined filter
-            if let Some(filter) = self.filter.clone() {
-                if !filter.exec(&payload) {
+            if let Some(filter) = self.filter.as_ref() {
+                if !(filter)(&payload) {
                     trace!("received message filtered out");
+                    consumer.commit_message(&borrowed_message, CommitMode::Sync)?;
                     continue
                 }
             }
 
-            // Spawn handler job on the pool
-            let producer = producer.as_ref().map(ThreadedProducer::handle);
-            let message_key = message.key().unwrap().to_vec();
-            let handler = self.handler.clone();
+            // Prepare vector to store responses
+            let mut responses = Rc::new(RefCell::new(Vec::new()));
 
-            self.pool.execute(move || {
-                debug!("handler job started");
-
-                let mut responses = Rc::new(RefCell::new(Vec::new()));
-
-                // Call user-defined handler
-                {
-                    let responses = responses.clone();
-                    let callback = move |resp| responses.borrow_mut().push(resp);
-                    match handler.exec(payload, callback) {
-                        Ok(result) => trace!("message handled successfuly"),
-                        Err(e) => {
-                            error!("handler failed: {}", e);
-                            return;
-                        }
+            // Pass message to handler
+            {
+                let responses = responses.clone();
+                let mut callback = move |resp| responses.borrow_mut().push(resp);
+                match (self.handler)(payload, &mut callback) {
+                    Ok(result) => trace!("message handled successfully"),
+                    Err(HandlerError::Other { error }) => {
+                        error!("handler failed to process message");
+                        consumer.commit_message(&borrowed_message, CommitMode::Sync)?;
+                        continue;
                     }
-                };
-
-                for resp in responses.borrow().iter() {
-                    if let Some(producer) = producer.as_ref() {
-                        match producer.send_with_key(&message_key, resp) {
-                            Ok(()) => (),
-                            Err(e) => error!("failed to produce message: {}", e),
-                        }
+                    Err(HandlerError::Internal { error }) => {
+                        panic!("internal error, stopping the service without commit");
                     }
                 }
-            })
+            }
+
+            // Send responses to the output topic
+            for (idx, resp) in responses.borrow().iter().enumerate() {
+                let message_key = if let Some(key) = self.key.as_ref() {
+                    key(resp)
+                } else {
+                    let mut base = message.key().unwrap().to_vec();
+                    if idx != 0 {
+                        base.extend(format!("-{}", idx).as_bytes());
+                    }
+                    base
+                };
+
+                if let Some(producer) = producer.as_ref() {
+                    match producer.send_with_key(&message_key, resp) {
+                        Ok(()) => (),
+                        Err(e) => error!("failed to produce message: {}", e),
+                    }
+                }
+            }
+
+            consumer.commit_message(&borrowed_message, CommitMode::Sync)?;
         }
 
-        self.pool.join();
-
         Ok(())
+    }
+}
+
+#[derive(Debug, Fail)]
+pub enum HandlerError {
+    #[fail(display = "internal error: {}", error)]
+    Internal {
+        error: Error
+    },
+    #[fail(display = "{}", error)]
+    Other {
+        error: Error,
     }
 }
 
@@ -198,8 +173,9 @@ pub struct HandlerThreadPoolBuilder<I, O> {
     group: Option<String>,
     input_topic: Option<String>,
     output_topic: Option<String>,
-    filter: Option<Filter<I>>,
-    handler: Option<Handler<I, O>>,
+    filter: Option<Box<dyn Fn(&I) -> bool>>,
+    key: Option<Box<dyn Fn(&O) -> Vec<u8>>>,
+    handler: Option<Box<dyn Fn(I, &mut dyn FnMut(O)) -> Result<(), HandlerError>>>,
     _marker: PhantomData<(I, O)>,
 }
 
@@ -227,17 +203,22 @@ impl<I, O> HandlerThreadPoolBuilder<I, O>
         self
     }
 
-    pub fn filter(mut self, filter: impl Fn(&I) -> bool + Send + Sync + 'static) -> Self {
-        self.filter = Some(Filter::new(filter));
+    pub fn filter(mut self, filter: impl Fn(&I) -> bool + 'static) -> Self {
+        self.filter = Some(Box::new(filter));
         self
     }
 
-    pub fn handler(mut self, handler: impl Fn(I, &mut dyn FnMut(O)) -> Result<(), Error> + Send + Sync + 'static) -> Self {
-        self.handler = Some(Handler::new(handler));
+    pub fn handler(mut self, handler: impl Fn(I, &mut dyn FnMut(O)) -> Result<(), HandlerError> + 'static) -> Self {
+        self.handler = Some(Box::new(handler));
         self
     }
 
-    pub fn build(self) -> Result<HandlerThreadPool<I, O>, Error> {
+    pub fn key_from(mut self, key: impl Fn(&O) -> Vec<u8> + 'static) -> Self {
+        self.key = Some(Box::new(key));
+        self
+    }
+
+    pub fn build(self) -> Result<HandlingConsumer<I, O>, Error> {
         let pool = if let Some(n_threads) = self.n_threads {
             Builder::new()
                 .num_threads(n_threads)
@@ -259,16 +240,19 @@ impl<I, O> HandlerThreadPoolBuilder<I, O>
 
         let filter = self.filter;
 
+        let key = self.key;
+
         let handler = self.handler.ok_or(
             err_msg("No handler function")
         )?;
 
         Ok(
-            HandlerThreadPool {
+            HandlingConsumer {
                 pool,
                 group,
                 input_topic,
                 output_topic,
+                key,
                 filter,
                 handler,
                 _marker: self._marker,
@@ -285,6 +269,7 @@ impl<I, O> Default for HandlerThreadPoolBuilder<I, O> {
             group: None,
             input_topic: None,
             output_topic: None,
+            key: None,
             filter: None,
             handler: None,
         }
@@ -331,7 +316,7 @@ mod tests {
     }
 
     fn supplier(shutdown: GracefulShutdownHandle) {
-        HandlerThreadPool::builder()
+        HandlingConsumer::builder()
             .pool_size(4)
             .group("handler.test.supplier")
             .subscribe("rustyrobot.test.handler.in")
@@ -369,7 +354,7 @@ mod tests {
 
         let counter = Arc::new(Mutex::new(0));
         let counter_copy = counter.clone();
-        HandlerThreadPool::builder()
+        HandlingConsumer::builder()
             .pool_size(4)
             .group(&format!("handler.test.client.{}", id))
             .subscribe("rustyrobot.test.handler.out")
