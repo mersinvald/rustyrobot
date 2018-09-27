@@ -19,6 +19,7 @@ use std::cell::RefCell;
 use std::fmt::Debug;
 
 use shutdown::GracefulShutdownHandle;
+use kafka::util::producer::ThreadedProducer;
 
 pub struct Handler<I, O> {
     f: Arc<dyn Fn(I, &mut dyn FnMut(O)) -> Result<(), Error> + Send + Sync + 'static>,
@@ -89,11 +90,9 @@ impl<I, O> HandlerThreadPool<I, O>
     pub fn start(self, shutdown: GracefulShutdownHandle) -> Result<(), Error> {
         info!("starting thread-pooled Handler {}/{} -> {:?}", self.input_topic, self.group, self.output_topic);
 
-        let producer: BaseProducer = ClientConfig::new()
-            .set("bootstrap.servers", "127.0.0.1:9092")
-            .set("produce.offset.report", "true")
-            .set("message.timeout.ms", "5000")
-            .create()?;
+        let producer = self.output_topic.as_ref().map(|topic| {
+            ThreadedProducer::new(&topic, shutdown.clone())
+        }).transpose()?;
 
         let consumer: BaseConsumer = ClientConfig::new()
             .set("bootstrap.servers", "127.0.0.1:9092")
@@ -105,21 +104,6 @@ impl<I, O> HandlerThreadPool<I, O>
             .create()?;
 
         consumer.subscribe(&[self.input_topic.as_ref()])?;
-
-        // start producer polling thread
-        let producer_poller_handle = {
-            let producer = producer.clone();
-            let shutdown = shutdown.clone();
-            let thread_id = format!("producer poller {}/{} -> {:?}", self.input_topic, self.group, self.output_topic);
-            thread::spawn(move || {
-                let thread_id = format!("{} ({:?})", thread_id, thread::current().id());
-                let lock = shutdown.started(thread_id);
-                while !shutdown.should_shutdown() {
-                    producer.poll(Duration::from_millis(200));
-                }
-                producer.flush(Duration::from_secs(60));
-            })
-        };
 
         // start polling the consumer
         while !shutdown.should_shutdown() {
@@ -170,10 +154,10 @@ impl<I, O> HandlerThreadPool<I, O>
             }
 
             // Spawn handler job on the pool
-            let producer = producer.clone();
+            let producer = producer.as_ref().map(ThreadedProducer::handle);
             let message_key = message.key().unwrap().to_vec();
             let handler = self.handler.clone();
-            let out_topic = self.output_topic.clone();
+
             self.pool.execute(move || {
                 debug!("handler job started");
 
@@ -193,37 +177,17 @@ impl<I, O> HandlerThreadPool<I, O>
                 };
 
                 for resp in responses.borrow().iter() {
-                    // Encode result
-                    let json = match json::to_vec(resp) {
-                        Ok(json) => json,
-                        Err(e) => {
-                            error!("failed to encode json");
-                            return;
+                    if let Some(producer) = producer.as_ref() {
+                        match producer.send_with_key(&message_key, resp) {
+                            Ok(()) => (),
+                            Err(e) => error!("failed to produce message: {}", e),
                         }
-                    };
-
-                    // Send retry loop (note that it only guarantees putting message into memory buffer)
-                    if let Some(out_topic) = out_topic.as_ref() {
-                        loop {
-                            match producer.send(BaseRecord::to(&out_topic)
-                                .key(&message_key)
-                                .payload(&json))
-                                {
-                                    Ok(()) => break,
-                                    Err((e, _)) => {
-                                        warn!("Failed to enqueue, retrying");
-                                        thread::sleep(Duration::from_millis(100));
-                                    },
-                                }
-                        }
-                        debug!("produced response into {}", out_topic);
                     }
                 }
             })
         }
 
         self.pool.join();
-        producer_poller_handle.join().ok();
 
         Ok(())
     }
