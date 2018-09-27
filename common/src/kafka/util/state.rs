@@ -6,6 +6,9 @@ use rdkafka::{
     ClientConfig,
 };
 
+use kafka::util::producer::ThreadedProducer;
+use shutdown::{GracefulShutdown, GracefulShutdownHandle};
+
 use std::ops::{Index, IndexMut};
 
 use threadpool::{ThreadPool, Builder};
@@ -26,20 +29,28 @@ pub struct StateHandler {
     old: State,
     new: State,
     topic: String,
-    consumer: BaseConsumer,
-    producer: BaseProducer,
+    producer: ThreadedProducer,
+    shutdown: GracefulShutdown,
 }
 
 impl StateHandler {
-    pub fn new(topic: impl AsRef<str>) -> Result<Self, Error> {
-        let producer: BaseProducer = ClientConfig::new()
-            .set("bootstrap.servers", "127.0.0.1:9092")
-            .set("produce.offset.report", "true")
-            .set("message.timeout.ms", "5000")
-            .create()?;
+    pub fn new(topic: impl AsRef<str>,) -> Result<Self, Error> {
+        let topic = topic.as_ref().to_owned();
+        let shutdown = GracefulShutdown::new();
+        let producer = ThreadedProducer::new(&topic, shutdown.thread_handle())?;
+        Ok(
+            StateHandler {
+                old: HashMap::new(),
+                new: HashMap::new(),
+                topic,
+                producer,
+                shutdown
+            }
+        )
+    }
 
+    pub fn restore(&mut self) -> Result<(), Error> {
         let group = format!("{}", uuid::Uuid::new_v4());
-
         let consumer: BaseConsumer = ClientConfig::new()
             .set("bootstrap.servers", "127.0.0.1:9092")
             .set("group.id", &group)
@@ -49,21 +60,9 @@ impl StateHandler {
             .set("auto.offset.reset", "earliest")
             .create()?;
 
-        consumer.subscribe(&[topic.as_ref()])?;
+        consumer.subscribe(&[self.topic.as_ref()])?;
 
-        Ok(
-            StateHandler {
-                old: HashMap::new(),
-                new: HashMap::new(),
-                topic: topic.as_ref().to_owned(),
-                consumer,
-                producer
-            }
-        )
-    }
-
-    pub fn restore(&mut self) -> Result<(), Error> {
-        for message in &self.consumer {
+        for message in &consumer {
             let message = match message {
                 Ok(message) => message,
                 Err(KafkaError::PartitionEOF(n)) => {
@@ -76,7 +75,9 @@ impl StateHandler {
             debug!("restoring state from {}: {} => {}", self.topic, key, value);
             self.old.insert(key, value);
         }
+
         self.new = self.old.clone();
+
         Ok(())
     }
 
@@ -85,36 +86,40 @@ impl StateHandler {
         let delta = self.delta();
         debug!("sync delta size: {}", delta.len());
         trace!("sync delta: {:?}", delta);
-        for change in delta {
-            let (key, value) = KeyValueBytes::from_state_change(change)?;
 
-            let mut record = BaseRecord::to(&self.topic)
-                .key(&key)
-                .payload(&value);
-
+        for (key, value) in delta {
             loop {
-                match self.producer.send(record) {
-                    Ok(_) => break,
-                    Err((e, r)) => {
-                        warn!("failed to enqueue state change. retrying.");
-                        record = r;
-                        // flush producer after failure
-                        self.producer.flush(Duration::from_secs(60));
+                match self.producer.send_with_key(key.clone(), value.clone()) {
+                    Ok(()) => break,
+                    Err(e) => {
+                        error!("failed to synchronize state: {}", e);
+                        thread::sleep(Duration::from_secs(1));
                     }
                 }
             }
         }
-        self.producer.flush(Duration::from_secs(60));
+
         self.old = self.new.clone();
         debug!("state sync finished");
         Ok(())
     }
 
-    pub fn get<S, V>(&mut self, key: S) -> V
+    pub fn get<S, V>(&self, key: S) -> V
         where S: AsRef<str>,
               V: FromJsonValue
     {
         V::from_json_value(self[key].clone())
+    }
+
+    pub fn get_or_default<S, V>(&self, key: S) -> V
+        where S: AsRef<str>,
+              V: FromJsonValue + Default
+    {
+        if let Some(value) = self.new.get(key.as_ref()) {
+            V::from_json_value(value.clone())
+        } else {
+            V::default()
+        }
     }
 
     pub fn set<S, V>(&mut self, key: S, value: V)
@@ -176,6 +181,7 @@ impl Drop for StateHandler {
     fn drop(&mut self) {
         self.sync()
             .expect("Failed to synchronize changes");
+        self.shutdown.shutdown();
     }
 }
 
@@ -274,6 +280,7 @@ mod tests {
     use env_logger;
     use uuid::Uuid;
     use std::collections::HashSet;
+    use shutdown::GracefulShutdown;
 
     #[test]
     fn save_and_restore() {
