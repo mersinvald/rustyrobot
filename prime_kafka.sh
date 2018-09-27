@@ -25,11 +25,14 @@ create_topic "rustyrobot.test.handler.in" 1
 create_topic "rustyrobot.test.handler.out" 1
 enable_compaction "rustyrobot.test.state.save_and_restore"
 
-
 # Github microservice input & output
 create_topic "rustyrobot.github.request" 1
 create_topic "rustyrobot.github.event" 1
 create_topic "rustyrobot.github.state" 1
 enable_compaction "rustyrobot.github.state"
+
+# Fetcher topics
+create_topic "rustyrobot.fetcher.state" 1
+enable_compaction "rustyrobot.fetcher.state"
 
 

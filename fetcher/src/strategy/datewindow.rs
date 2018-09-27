@@ -1,17 +1,17 @@
 use super::Strategy;
 
-use rocksdb::DB;
 use failure::Error;
 use chrono::NaiveDate;
 use chrono::Utc;
 use chrono::Duration;
 use json;
 
-use api::search::search;
-use api::search::query::IncompleteQuery;
-use api::db;
-use api::db::stats;
-use api::search::NodeType;
+use rustyrobot::{
+    search::{
+        search,
+        query::IncompleteQuery,
+    },
+};
 
 use fetcher::FetcherState;
 
@@ -46,45 +46,33 @@ impl Default for DateWindowState {
 }
 
 impl Strategy for DateWindow {
-    /// Fetch data from database before execution
-    fn prefetch_data(&mut self, db: &DB) -> Result<(), Error> {
-        let meta = db.cf_handle(db::cf::REPOS_META).unwrap();
-
-        self.start_date = match self.start_date.take() {
-            Some(date) => Some(date),
-            None => db.get_cf(meta, b"last_date")?
-                .and_then(|x| x.to_utf8().map(ToOwned::to_owned))
-                .and_then(|s| NaiveDate::parse_from_str(&s, "%Y-%m-%d").ok())
-                .or_else(|| Some(Utc::today().naive_utc()))
+    /// Run query using the strategy logic
+    fn execute(&mut self, shared: &mut FetcherState, query: IncompleteQuery) -> Result<(), Error> {
+        let start_date = if let Some(start_date) = self.start_date {
+            start_date
+        } else {
+            let date: String = shared.state.get_or_default("last_date");
+            NaiveDate::parse_from_str(&date, "%Y-%m-%d")
+                .unwrap_or_else(|e| {
+                    error!("failed to parse last_date: {}", e);
+                    error!("using Utc::today()");
+                    Utc::today().naive_utc()
+                })
         };
 
-        self.end_date = self.end_date.take()
-            .or_else(|| Some(Utc::today().naive_utc()));
-
-        Ok(())
-    }
-
-    /// Run query using the strategy logic
-    fn execute<'a, 'b, N>(&mut self, shared: &FetcherState<N>, query: IncompleteQuery<'a, 'b, N>) -> Result<(), Error>
-        where N: NodeType
-    {
-        let meta = shared.db.cf_handle(db::cf::REPOS_META).unwrap();
-
-        // At this moment start_date MUST be Some
-        self.state.date = self.start_date.unwrap();
+        self.state.date = start_date;
         let step = Duration::days(self.days_per_request as i64);
 
         while self.state.date <= Utc::today().naive_utc() && !shared.shutdown.should_shutdown() {
 
             let window_start = self.state.date.format("%Y-%m-%d").to_string();
             let window_end = self.state.date + step;
-
-            shared.db.put_cf(meta, b"last_date", window_start.as_bytes())?;
+            shared.state.set("last_date", window_start.clone());
+            shared.state.sync()?;
             self.state.date = window_end.succ();
 
             let date_query_segment = format!("created:{}..{}", window_start, window_end.format("%Y-%m-%d"));
-            info!("querying {}", date_query_segment);
-
+            info!("requesting {}", date_query_segment);
             let query = query.clone().raw_query(date_query_segment);
 
             // Reuse simple strategy for making single request

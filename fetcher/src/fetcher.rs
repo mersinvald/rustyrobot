@@ -1,4 +1,4 @@
-use strategy::Strategy;
+use strategy::{Strategy, DateWindow};
 
 use std::sync::Arc;
 
@@ -8,43 +8,42 @@ use std::fs::File;
 
 use std::time::{Instant, Duration};
 
-use rocksdb::DB;
-use api::db::KV;
-use api::github::v4::Github;
 
-use api::search::{search, NodeType, query::{Query, IncompleteQuery, Lang}};
-use types::Repository;
+use rustyrobot::{
+    search::{query::{Query, IncompleteQuery, Lang}},
+    types::Repository,
+    shutdown::GracefulShutdownHandle,
+    kafka::util::{
+        state::StateHandler,
+        producer::ThreadedProducerHandle,
+    }
+};
+
 use std::thread;
 use chrono::Utc;
-use api::db::stats;
 use std::mem::discriminant;
 use std::borrow::Cow;
 
-use shutdown::GracefulShutdownHandle;
-
 use chrono::NaiveDate;
 
-type Hook<N> = Box<Fn(&N)>;
-
-struct FetcherState<'s, N> {
-    db: &'s DB,
-    gh: &'s Github,
-    shutdown: &'s GracefulShutdownHandle,
-    hooks: Vec<Hook<N>>
+pub struct FetcherState<'a> {
+    pub shutdown: GracefulShutdownHandle,
+    pub state: &'a mut StateHandler,
+    pub producer: ThreadedProducerHandle,
 }
 
-pub struct Fetcher<'a, S: Strategy, N> {
-    state: FetcherState<'a, N>,
+pub struct Fetcher<'a, S: Strategy> {
+    state: FetcherState<'a>,
     strategy: S,
 }
 
-impl<'s, N: NodeType> Fetcher<'s, strategy::DateWindow, N> {
-    pub fn new_with_default_strategy(db: &'s DB, gh: &'s Github, shutdown: &'s GracefulShutdownHandle) -> Self {
+impl<'a> Fetcher<'a, DateWindow> {
+    pub fn new_with_default_strategy(state: &'a mut StateHandler, producer: ThreadedProducerHandle, shutdown: GracefulShutdownHandle) -> Self {
         Fetcher::new(
-            db,
-            gh,
+            state,
+            producer,
             shutdown,
-            strategy::DateWindow {
+            DateWindow {
                 days_per_request: 1,
                 ..Default::default()
             }
@@ -52,29 +51,20 @@ impl<'s, N: NodeType> Fetcher<'s, strategy::DateWindow, N> {
     }
 }
 
-impl<'s, S: Strategy, N: NodeType> Fetcher<'s, S, N> {
-    pub fn new(db: &'s DB, gh: &'s Github, shutdown: &'s GracefulShutdownHandle, strategy: S) -> Self {
+impl<'a, S: Strategy> Fetcher<'a, S> {
+    pub fn new(state: &'a mut StateHandler, producer: ThreadedProducerHandle, shutdown: GracefulShutdownHandle, strategy: S) -> Self {
         Fetcher {
             state: FetcherState {
-                db,
-                gh,
                 shutdown,
-                hooks: vec![],
+                state,
+                producer,
             },
             strategy,
         }
     }
 
-    pub fn add_node_hook<H: Fn(&N) + 'static>(&mut self, hook: H) {
-        self.state.hooks.push(Box::new(hook))
-    }
-
-    pub fn fetch<'qa, 'qb>(&mut self, base_query: IncompleteQuery<'qa, 'qb, N>) -> Result<(), Error>
-        where N: NodeType
-    {
-        self.strategy.prefetch_data(&self.state.db)?;
-        self.strategy.execute(&self.state, base_query)?;
-        Ok(())
+    pub fn fetch(&mut self, base_query: IncompleteQuery) -> Result<(), Error> {
+        Ok(self.strategy.execute(&mut self.state, base_query)?)
     }
 }
 

@@ -16,7 +16,7 @@ use rustyrobot::{
         topic, group,
         github::{GithubRequest, GithubEvent},
         util::{
-            handler::HandlerThreadPool,
+            handler::{HandlingConsumer, HandlerError},
             state::StateHandler,
         }
     },
@@ -51,7 +51,7 @@ fn init_fern() -> Result<(), Error> {
                 message
             ))
         })
-        .level_for("fetcher", log::LevelFilter::Debug)
+        .level_for("github", log::LevelFilter::Debug)
         .level_for("rustyrobot_common", log::LevelFilter::Debug)
         .level(log::LevelFilter::Warn)
         .chain(std::io::stdout())
@@ -81,20 +81,12 @@ fn main() {
     let token = load_token()
         .expect("failed to load token (set GITHUB_TOKEN env)");
 
-    let producer: ThreadedProducer<DefaultProducerContext> = ClientConfig::new()
-        .set("bootstrap.servers", "127.0.0.1:9092")
-        .set("produce.offset.report", "true")
-        .set("message.timeout.ms", "5000")
-        .create()
-        .expect("failed to create producer");
-
+    let github_v3 = GithubV3::new(&token).expect("failed to create GitHub V3 API instance");
+    let github_v4 = GithubV4::new(&token).expect("failed to create GitHub V4 API instance");
 
     let handler = {
         let shutdown_handle = shutdown_handle.clone();
         move |msg, callback: &mut dyn FnMut(GithubEvent)| {
-            let github_v3 = GithubV3::new(&token).expect("failed to create GitHub V3 API instance");
-            let github_v4 = GithubV4::new(&token).expect("failed to create GitHub V4 API instance");
-
             let increment_stat_counter = |key| {
                 let mut state = state.lock().unwrap();
                 state.increment(key);
@@ -109,7 +101,7 @@ fn main() {
             increment_stat_counter("requests received");
 
             let event = match msg {
-                GithubRequest::Fetch { date, query } => {
+                GithubRequest::Fetch(query) => {
                     match query.search_for {
                         SearchFor::Repository => {
                             increment_stat_counter("repository fetch requests received");
@@ -130,10 +122,16 @@ fn main() {
         }
     };
 
-    HandlerThreadPool::builder()
+    HandlingConsumer::builder()
         .pool_size(4)
         .subscribe(topic::GITHUB_REQUEST)
+        .respond_to(topic::GITHUB_EVENT)
         .group(group::GITHUB)
+        .key_from(|event| {
+            match event {
+                GithubEvent::RepositoryFetched(repo) => repo.name_with_owner.as_bytes().to_vec()
+            }
+        })
         .handler(handler)
         .build()
         .expect("failed to build handler")
@@ -141,7 +139,7 @@ fn main() {
         .expect("github service failed");
 }
 
-fn fetch_all_repos(gh: &GithubV4, query: IncompleteQuery, shutdown: GracefulShutdownHandle) -> Result<Vec<Repository>, Error> {
+fn fetch_all_repos(gh: &GithubV4, query: IncompleteQuery, shutdown: GracefulShutdownHandle) -> Result<Vec<Repository>, HandlerError> {
     let mut repos = Vec::new();
 
     let mut page = None;
@@ -151,12 +149,15 @@ fn fetch_all_repos(gh: &GithubV4, query: IncompleteQuery, shutdown: GracefulShut
         let query = query.clone();
 
         let query = if let Some(page) = page.take() {
-            query.after(page).build()?
+            query.after(page).build()
         } else {
-            query.build()?
+            query.build()
         };
 
-        let data = search(&gh, query)?;
+        let query = query.map_err(|error| HandlerError::Internal { error })?;
+
+        let data = search(&gh, query)
+            .map_err(|error| HandlerError::Internal { error })?;
 
         let page_info = data.page_info;
         let nodes = data.nodes;

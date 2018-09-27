@@ -32,7 +32,7 @@ pub enum SearchFor {
 impl SearchFor {
     fn type_str(&self) -> &'static str {
         match *self {
-            SearchFor::Repository => "",
+            SearchFor::Repository => "REPOSITORY",
             SearchFor::Undefined => panic!("Search target is not defined"),
         }
     }
