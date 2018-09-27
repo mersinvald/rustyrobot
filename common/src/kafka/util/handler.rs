@@ -14,31 +14,33 @@ use std::thread;
 use std::time::Duration;
 use std::marker::PhantomData;
 use std::sync::Arc;
+use std::rc::Rc;
+use std::cell::RefCell;
 use std::fmt::Debug;
 
 use shutdown::GracefulShutdownHandle;
 
 pub struct Handler<I, O> {
-    f: Arc<dyn Fn(I) -> Result<O, Error> + Send + Sync + 'static>,
+    f: Arc<dyn Fn(I, &mut dyn FnMut(O)) -> Result<(), Error> + Send + Sync + 'static>,
 }
 
 impl<I, O> Clone for Handler<I, O> {
     fn clone(&self) -> Self {
         Handler {
-            f: self.f.clone()
+            f: self.f.clone(),
         }
     }
 }
 
 impl<I, O> Handler<I, O> {
-    fn new(f: impl Fn(I) -> Result<O, Error> + Send + Sync + 'static) -> Self {
+    fn new(f: impl Fn(I, &mut dyn FnMut(O)) -> Result<(), Error> + Send + Sync + 'static) -> Self {
         Handler {
             f: Arc::new(f),
         }
     }
 
-    fn exec(&self, input: I) -> Result<O, Error> {
-        (self.f)(input)
+    fn exec(&self, input: I, mut callback: impl FnMut(O) + 'static) -> Result<(), Error> {
+        (self.f)(input, &mut callback)
     }
 }
 
@@ -78,7 +80,7 @@ pub struct HandlerThreadPool<I, O> {
 
 impl<I, O> HandlerThreadPool<I, O>
     where I: DeserializeOwned + Send + Debug + 'static,
-          O: Serialize + Send + 'static
+          O: Serialize + Send + 'static,
 {
     pub fn builder() -> HandlerThreadPoolBuilder<I, O> {
         HandlerThreadPoolBuilder::default()
@@ -175,48 +177,53 @@ impl<I, O> HandlerThreadPool<I, O>
             self.pool.execute(move || {
                 debug!("handler job started");
 
+                let mut responses = Rc::new(RefCell::new(Vec::new()));
+
                 // Call user-defined handler
-                let result = match handler.exec(payload) {
-                    Ok(result) => {
-                        trace!("message handled successfuly");
-                        result
-                    },
-                    Err(e) => {
-                        error!("handler failed: {}", e);
-                        return;
+                {
+                    let responses = responses.clone();
+                    let callback = move |resp| responses.borrow_mut().push(resp);
+                    match handler.exec(payload, callback) {
+                        Ok(result) => trace!("message handled successfuly"),
+                        Err(e) => {
+                            error!("handler failed: {}", e);
+                            return;
+                        }
                     }
                 };
 
-                // Encode result
-                let json = match json::to_vec(&result) {
-                    Ok(json) => json,
-                    Err(e) => {
-                        error!("failed to encode json");
-                        return;
-                    }
-                };
+                for resp in responses.borrow().iter() {
+                    // Encode result
+                    let json = match json::to_vec(resp) {
+                        Ok(json) => json,
+                        Err(e) => {
+                            error!("failed to encode json");
+                            return;
+                        }
+                    };
 
-                // Send retry loop (note that it only guarantees putting message into memory buffer)
-                if let Some(out_topic) = out_topic {
-                    loop {
-                        match producer.send(BaseRecord::to(&out_topic)
-                                                    .key(&message_key)
-                                                    .payload(&json))
-                            {
-                                Ok(()) => break,
-                                Err((e, _)) => {
-                                    warn!("Failed to enqueue, retrying");
-                                    thread::sleep(Duration::from_millis(100));
-                                },
-                            }
+                    // Send retry loop (note that it only guarantees putting message into memory buffer)
+                    if let Some(out_topic) = out_topic.as_ref() {
+                        loop {
+                            match producer.send(BaseRecord::to(&out_topic)
+                                .key(&message_key)
+                                .payload(&json))
+                                {
+                                    Ok(()) => break,
+                                    Err((e, _)) => {
+                                        warn!("Failed to enqueue, retrying");
+                                        thread::sleep(Duration::from_millis(100));
+                                    },
+                                }
+                        }
+                        debug!("produced response into {}", out_topic);
                     }
-                    debug!("produced response into {}", out_topic);
                 }
             })
         }
 
         self.pool.join();
-        producer_poller_handle.join();
+        producer_poller_handle.join().ok();
 
         Ok(())
     }
@@ -261,7 +268,7 @@ impl<I, O> HandlerThreadPoolBuilder<I, O>
         self
     }
 
-    pub fn handler(mut self, handler: impl Fn(I) -> Result<O, Error> + Send + Sync + 'static) -> Self {
+    pub fn handler(mut self, handler: impl Fn(I, &mut dyn FnMut(O)) -> Result<(), Error> + Send + Sync + 'static) -> Self {
         self.handler = Some(Handler::new(handler));
         self
     }
@@ -365,8 +372,9 @@ mod tests {
             .group("handler.test.supplier")
             .subscribe("rustyrobot.test.handler.in")
             .respond_to("rustyrobot.test.handler.out")
-            .handler(|message: Payload| {
-                Ok(message)
+            .handler(|message: Payload, callback| {
+                callback(message);
+                Ok(())
             })
             .build()
             .unwrap()
@@ -402,7 +410,7 @@ mod tests {
             .group(&format!("handler.test.client.{}", id))
             .subscribe("rustyrobot.test.handler.out")
             .filter(move |msg: &Payload| msg.0 == id)
-            .handler(move |msg: Payload| {
+            .handler(move |msg: Payload, callback: &mut dyn FnMut(())| {
                 assert_eq!(msg.0, id);
                 *counter_copy.lock().unwrap() += 1;
                 Ok(())

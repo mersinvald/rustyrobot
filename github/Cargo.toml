@@ -6,3 +6,7 @@ authors = ["Mike Lubinets <lubinetsm@yandex.ru>"]
 [dependencies]
 rustyrobot-common = { path = "../common" }
 rdkafka = "0.17.0"
+ctrlc = "3.1.1"
+failure = "0.1.2"
+log = "0.4.5"
+env_logger = "0.5.13"

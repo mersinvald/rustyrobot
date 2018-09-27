@@ -125,6 +125,29 @@ impl StateHandler {
         self[key] = value;
     }
 
+    pub fn set_and_sync<S, V>(&mut self, key: S, value: V) -> Result<(), Error>
+        where S: AsRef<str>,
+              V: Into<Value>
+    {
+        self.set(key, value);
+        self.sync()
+    }
+
+    pub fn increment<S>(&mut self, key: S)
+        where S: AsRef<str>
+    {
+        let key = key.as_ref().to_string();
+
+        let old = self.new.get(&key)
+            .cloned()
+            .map(i64::from_json_value)
+            .unwrap_or(0);
+
+        let new = Value::from(old + 1);
+
+        self.new.insert(key, new);
+    }
+
     fn delta(&self) -> Vec<StateChange> {
         let mut changes = Vec::new();
 

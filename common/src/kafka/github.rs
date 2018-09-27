@@ -1,5 +1,5 @@
 use super::Event;
-use search::query::Query;
+use search::query::IncompleteQuery;
 use types::Repository;
 use chrono::DateTime;
 use chrono::Utc;
@@ -16,6 +16,6 @@ impl Event for GithubEvent {}
 pub enum GithubRequest {
     Fetch {
         date: DateTime<Utc>,
-        query: Query,
+        query: IncompleteQuery,
     },
 }

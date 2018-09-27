@@ -1,6 +1,6 @@
 pub mod v3;
 pub mod v4;
-mod utils;
+pub mod utils;
 
 use serde::de::DeserializeOwned;
 use failure::Error;

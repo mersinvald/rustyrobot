@@ -1,4 +1,5 @@
 #![feature(map_get_key_value)]
+#![feature(nll)]
 
 #[macro_use]
 extern crate failure;

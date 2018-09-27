@@ -40,7 +40,7 @@ impl SearchFor {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Query {
-    search_for: SearchFor,
+    pub search_for: SearchFor,
     query: Option<String>,
     count: u8,
     after: Option<String>,
@@ -82,9 +82,9 @@ enum QueryBuilderError {
     },
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct IncompleteQuery {
-    search_for: SearchFor,
+    pub search_for: SearchFor,
     query: Option<String>,
     count: Option<u8>,
     after: Option<String>,
