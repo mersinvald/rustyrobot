@@ -17,10 +17,7 @@ use serde::de::DeserializeOwned;
 use github::RequestError;
 
 pub trait NodeType: Serialize + DeserializeOwned + Clone + Debug {
-    fn id(&self) -> &str {
-        panic!("No ID in {} node", Self::type_str())
-    }
-    fn type_str() -> &'static str;
+
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

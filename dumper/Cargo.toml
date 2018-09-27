@@ -13,5 +13,5 @@ fern = "0.5.6"
 failure = "0.1.2"
 ctrlc = "3.1.1"
 
-[dependencies.rustyrobot-common]
+[dependencies.rustyrobot]
 path = "../common"

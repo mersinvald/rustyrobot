@@ -1,4 +1,4 @@
-extern crate rustyrobot_common as rustyrobot;
+extern crate rustyrobot;
 
 #[macro_use]
 extern crate serde_derive;
@@ -34,7 +34,7 @@ fn init_fern() -> Result<(), Error> {
             ))
         })
         .level_for("fetcher", log::LevelFilter::Debug)
-        .level_for("rustyrobot_common", log::LevelFilter::Debug)
+        .level_for("rustyrobot", log::LevelFilter::Debug)
         .level(log::LevelFilter::Warn)
         .chain(std::io::stdout())
         .apply()?;
@@ -102,6 +102,7 @@ fn main() {
     // Setup fetching strategy
     let mut strategy = DateWindow {
         days_per_request: 1,
+        start_date: Some(NaiveDate::from_ymd(2016, 1, 1)),
         ..Default::default()
     };
 

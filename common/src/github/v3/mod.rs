@@ -65,7 +65,7 @@ pub trait ExecutorExt: Executor + Sized {
         }
 
         match status {
-            StatusCode::Ok => (),
+            StatusCode::Ok | StatusCode::Accepted => (),
             status => raise!(RequestError::ResponseStatusNotOk { status: status.as_u16() })
         }
 

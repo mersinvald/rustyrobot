@@ -1,4 +1,4 @@
-extern crate rustyrobot_common as rustyrobot;
+extern crate rustyrobot;
 extern crate rdkafka;
 extern crate ctrlc;
 extern crate failure;
@@ -7,6 +7,11 @@ extern crate log;
 #[macro_use]
 extern crate fern;
 extern crate chrono;
+extern crate github_rs as github_v3;
+#[macro_use]
+extern crate serde_derive;
+extern crate serde;
+extern crate serde_json as json;
 
 use std::sync::{Arc, Mutex};
 use failure::Error;
@@ -23,7 +28,7 @@ use rustyrobot::{
     github::v4::Github as GithubV4,
     github::v3::Github as GithubV3,
     github::utils::load_token,
-    types::Repository,
+    types::{Repository, derive_fork},
     search::{
         search,
         query::SearchFor,
@@ -52,7 +57,7 @@ fn init_fern() -> Result<(), Error> {
             ))
         })
         .level_for("github", log::LevelFilter::Debug)
-        .level_for("rustyrobot_common", log::LevelFilter::Debug)
+        .level_for("rustyrobot", log::LevelFilter::Debug)
         .level(log::LevelFilter::Warn)
         .chain(std::io::stdout())
         .apply()?;
@@ -114,6 +119,10 @@ fn main() {
                         },
                         SearchFor::Undefined => panic!("search_for is Undefined: can't fetch an undefined entity")
                     }
+                },
+                GithubRequest::Fork(repo) => {
+                    let fork = fork_repo(&github_v3, &repo)?;
+                    callback(GithubEvent::RepositoryForked(fork))
                 }
             };
 
@@ -127,11 +136,6 @@ fn main() {
         .subscribe(topic::GITHUB_REQUEST)
         .respond_to(topic::GITHUB_EVENT)
         .group(group::GITHUB)
-        .key_from(|event| {
-            match event {
-                GithubEvent::RepositoryFetched(repo) => repo.name_with_owner.as_bytes().to_vec()
-            }
-        })
         .handler(handler)
         .build()
         .expect("failed to build handler")
@@ -171,4 +175,19 @@ fn fetch_all_repos(gh: &GithubV4, query: IncompleteQuery, shutdown: GracefulShut
     }
 
     Ok(repos)
+}
+
+use rustyrobot::github::v3::ExecutorExt;
+use json::Value;
+
+fn fork_repo(gh: &GithubV3, repo: &Repository) -> Result<Repository, HandlerError> {
+    let endpoint = format!("repos/{}/forks", &repo.name_with_owner);
+    debug!("fork endpoint: {}", endpoint);
+    let value: Value = gh.post(()).custom_endpoint(&endpoint).send()
+        .map_err(|error| HandlerError::Other { error })?;
+
+    let fork = derive_fork(repo, value)
+        .map_err(|error| HandlerError::Internal { error })?;
+
+    Ok(fork)
 }

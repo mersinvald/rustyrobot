@@ -53,7 +53,7 @@ impl<I, O> HandlingConsumer<I, O>
             .set("enable.partition.eof", "false")
             .set("session.timeout.ms", "6000")
             .set("enable.auto.commit", "false")
-            .set("auto.offset.reset", "latest")
+            .set("auto.offset.reset", "earliest")
             .set("heartbeat.interval.ms", "1000")
             .create()?;
 
@@ -119,12 +119,12 @@ impl<I, O> HandlingConsumer<I, O>
                 match (self.handler)(payload, &mut callback) {
                     Ok(result) => trace!("message handled successfully"),
                     Err(HandlerError::Other { error }) => {
-                        error!("handler failed to process message");
+                        error!("handler failed to process message: {}", error);
                         consumer.commit_message(&borrowed_message, CommitMode::Sync)?;
                         continue;
                     }
                     Err(HandlerError::Internal { error }) => {
-                        panic!("internal error, stopping the service without commit");
+                        panic!("internal error, stopping the service without commit: {}", error);
                     }
                 }
             }

@@ -15,4 +15,5 @@ pub mod topic {
 pub mod group {
     pub const GITHUB: &str = "rustyrobot.github";
     pub const FETCHER: &str = "rustyrobot.fetcher";
+    pub const FORKER: &str = "rustyrobot.forker";
 }

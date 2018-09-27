@@ -7,12 +7,13 @@ use chrono::Utc;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum GithubEvent {
     RepositoryFetched(Repository),
+    RepositoryForked(Repository),
 }
 
 impl Event for GithubEvent {}
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum GithubRequest {
     Fetch(IncompleteQuery),
+    Fork(Repository),
 }

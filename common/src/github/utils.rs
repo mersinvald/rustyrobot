@@ -14,7 +14,7 @@ pub fn is_rate_limit_error_v4(status: gh4::StatusCode, body: &Value) -> bool {
 
 pub fn is_rate_limit_error_v3(status: gh3::StatusCode, body: &Value) -> bool {
     match status {
-        gh4::StatusCode::Forbidden => (),
+        gh3::StatusCode::Forbidden => (),
         _ => return false,
     }
 
