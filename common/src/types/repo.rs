@@ -3,27 +3,18 @@ use chrono::{DateTime, Utc};
 use json::{self, Value};
 use failure::{err_msg, Error};
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug)]
 pub struct Repository {
     pub id: String,
     pub name_with_owner: String,
     pub description: Option<String>,
     pub ssh_url: String,
     pub url: String,
-    pub default_branch_ref: BranchRef,
+    pub default_branch: String,
     pub created_at: DateTime<Utc>,
     pub parent: Option<RepositoryParent>,
     pub has_issues_enabled: bool,
     pub is_fork: bool,
-}
-
-impl search::NodeType for Repository {}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BranchRef {
-    pub name: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -32,6 +23,118 @@ pub struct RepositoryParent {
     pub name_with_owner: String,
     pub ssh_url: String,
     pub url: String,
+}
+
+impl search::NodeType for Repository {
+    fn from_value(json: Value) -> Result<Self, Error> {
+        let repo = v4::Repository::from_value(json.clone())
+            .map(Repository::from)
+            .or_else(|| v3::Repository::from_value(json)
+                .map(Repository::from))?;
+        Ok(repo)
+    }
+}
+
+mod v4 {
+    use failure::Error;
+    use chrono::{DateTime, Utc};
+    use json::{self, Value};
+    use search::NodeType;
+
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct Repository {
+        pub id: String,
+        pub name_with_owner: String,
+        pub description: Option<String>,
+        pub ssh_url: String,
+        pub url: String,
+        pub default_branch_ref: BranchRef,
+        pub created_at: DateTime<Utc>,
+        pub parent: Option<super::RepositoryParent>,
+        pub has_issues_enabled: bool,
+        pub is_fork: bool,
+    }
+
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct BranchRef {
+        pub name: String,
+    }
+
+    impl NodeType for Repository {
+        fn from_value(json: Value) -> Result<Self, Error> {
+            let repo = json::from_value(json)?;
+            Ok(repo)
+        }
+    }
+
+    impl From<Repository> for super::Repository {
+        fn from(v4: Repository) -> super::Repository {
+            super::Repository {
+                id: v4.id,
+                name_with_owner: v4.name_with_owner,
+                description: v4.description,
+                ssh_url: v4.ssh_url,
+                url: v4.url,
+                default_branch: v4.default_branch_ref.name,
+                created_at: v4.created_at,
+                parent: v4.parent,
+                has_issues_enabled: v4.has_issues_enabled,
+                is_fork: v4.is_fork
+            }
+        }
+    }
+}
+
+mod v3 {
+    use failure::Error;
+    use chrono::{DateTime, Utc};
+    use json::{self, Value};
+    use search::NodeType;
+
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct Repository {
+        pub id: i64,
+        pub full_name: String,
+        pub description: Option<String>,
+        pub ssh_url: String,
+        pub html_url: String,
+        pub default_branch: String,
+        pub created_at: DateTime<Utc>,
+        // TODO
+        pub parent: Option<super::RepositoryParent>,
+        pub has_issues: bool,
+        // TODO
+        pub is_fork: bool,
+    }
+
+    impl NodeType for Repository {
+        fn from_value(json: Value) -> Result<Self, Error> {
+            let repo = json::from_value(json)?;
+            Ok(repo)
+        }
+    }
+
+    impl From<Repository> for super::Repository {
+        fn from(v3: Repository) -> super::Repository {
+            super::Repository {
+                id: format!("{}", v3.id),
+                name_with_owner: v3.full_name,
+                description: v3.description,
+                ssh_url: v3.ssh_url,
+                url: v3.html_url,
+                default_branch: v3.default_branch,
+                created_at: v3.created_at,
+                // TODO
+                parent: v3.parent,
+                has_issues_enabled: v3.has_issues,
+                // TODO
+                is_fork: v3.is_fork
+            }
+        }
+    }
 }
 
 use std::str::FromStr;

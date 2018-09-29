@@ -144,3 +144,7 @@
 //         thread::sleep(StdDuration::from_secs(1));
 //     }
 // }
+
+fn main() {
+
+}

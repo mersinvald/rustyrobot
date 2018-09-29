@@ -16,8 +16,8 @@ use serde::de::DeserializeOwned;
 
 use github::RequestError;
 
-pub trait NodeType: Serialize + DeserializeOwned + Clone + Debug {
-
+pub trait NodeType: Serialize + Clone + Debug {
+    fn from_value(json: Value) -> Result<Self, Error>;
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
