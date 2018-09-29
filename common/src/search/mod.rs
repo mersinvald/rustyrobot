@@ -1,10 +1,7 @@
 pub mod query;
 
 use failure::Error;
-use gh4::query::Query as GqlQuery;
-use gh4::StatusCode;
 use self::query::Query;
-use chrono::{DateTime, Utc};
 use std::fmt::Debug;
 use github::v4::Github;
 
@@ -13,8 +10,6 @@ use json;
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-
-use github::RequestError;
 
 pub trait NodeType: Serialize + DeserializeOwned + Clone + Debug {
     fn from_value(json: Value) -> Result<Self, Error>;
@@ -41,8 +36,6 @@ static REPO_QUERY: &'static str = include_str!(
         "/res/repo_query.gql"
     )
 );
-
-use error_chain_failure_interop::ResultExt;
 
 pub fn search<N>(gh: &Github, query: Query) -> Result<SearchResult<N>, Error>
     where N: NodeType
@@ -72,7 +65,7 @@ trait Uglify {
     fn uglify(self) -> String;
 }
 
-use std::io::{Read, BufRead, Cursor};
+use std::io::{BufRead, Cursor};
 
 impl Uglify for String {
     fn uglify(self) -> String {

@@ -4,7 +4,6 @@ extern crate ctrlc;
 extern crate failure;
 #[macro_use]
 extern crate log;
-#[macro_use]
 extern crate fern;
 extern crate chrono;
 
@@ -15,22 +14,9 @@ use rustyrobot::{
         topic, group,
         Event,
         GithubRequest,
-        util::{
-            producer::ThreadedProducer,
-            handler::HandlingConsumer,
-            state::StateHandler,
-        }
+        util::handler::HandlingConsumer,
     },
-    github::v4::Github as GithubV4,
-    github::v3::Github as GithubV3,
-    github::utils::load_token,
-    types::Repository,
-    search::{
-        search,
-        query::SearchFor,
-        query::{Lang, Query, IncompleteQuery},
-    },
-    shutdown::{GracefulShutdown, GracefulShutdownHandle},
+    shutdown::GracefulShutdown,
 };
 
 
@@ -71,7 +57,6 @@ fn main() {
     }).expect("couldn't register SIGINT handler");
 
     HandlingConsumer::builder()
-        .pool_size(4)
         .subscribe(topic::EVENT)
         .respond_to(topic::GITHUB_REQUEST)
         .group(group::FORKER)

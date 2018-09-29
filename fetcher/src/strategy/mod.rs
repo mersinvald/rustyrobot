@@ -5,7 +5,6 @@ pub use self::simple::Simple;
 pub use self::datewindow::DateWindow;
 
 use failure::Error;
-use serde::Serialize;
 
 use rustyrobot::search::query::IncompleteQuery;
 

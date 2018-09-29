@@ -1,30 +1,15 @@
 use strategy::{Strategy, DateWindow};
-
-use std::sync::Arc;
-
 use failure::Error;
-use std::io::Write;
-use std::fs::File;
-
-use std::time::{Instant, Duration};
 
 
 use rustyrobot::{
-    search::{query::{Query, IncompleteQuery, Lang}},
-    types::Repository,
+    search::query::IncompleteQuery,
     shutdown::GracefulShutdownHandle,
     kafka::util::{
         state::StateHandler,
         producer::ThreadedProducerHandle,
     }
 };
-
-use std::thread;
-use chrono::Utc;
-use std::mem::discriminant;
-use std::borrow::Cow;
-
-use chrono::NaiveDate;
 
 pub struct FetcherState<'a> {
     pub shutdown: GracefulShutdownHandle,
@@ -64,7 +49,8 @@ impl<'a, S: Strategy> Fetcher<'a, S> {
     }
 
     pub fn fetch(&mut self, base_query: IncompleteQuery) -> Result<(), Error> {
-        Ok(self.strategy.execute(&mut self.state, base_query)?)
+        self.strategy.execute(&mut self.state, base_query)?;
+        Ok(())
     }
 }
 

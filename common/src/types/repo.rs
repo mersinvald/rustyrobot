@@ -1,6 +1,6 @@
 use search;
 use chrono::{DateTime, Utc};
-use json::{self, Value};
+use json::Value;
 use failure::{err_msg, Error};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

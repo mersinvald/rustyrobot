@@ -6,7 +6,6 @@ use gh3::headers::{
     rate_limit_reset
 };
 
-use std::borrow::Cow;
 use std::sync::{Arc, RwLock};
 
 use serde::de::DeserializeOwned;
@@ -19,10 +18,8 @@ use github::utils;
 use error_chain_failure_interop::ResultExt;
 
 use chrono::Utc;
-use chrono::NaiveDate;
 use std::thread;
 use std::time::Duration;
-use std::fmt::Debug;
 
 pub trait ExecutorExt<T>: Executor + Sized {
     fn send(self, good_statuses: &[StatusCode]) -> Result<T, Error>;
@@ -55,7 +52,7 @@ impl<T, E: Executor + Sized> ExecutorExt<T> for E
             let limits = RateLimit {
                 limit: rate_limit(&headers)?,
                 remaining: rate_limit_remaining(&headers)?,
-                reset_at: rate_limit_reset(&headers)? as i64,
+                reset_at: i64::from(rate_limit_reset(&headers)?),
             };
             debug!("API v3 limits: {:?}", limits);
             Some(limits)
@@ -107,7 +104,7 @@ impl<E: Executor + Sized> ExecutorExt<EmptyResponse> for E {
             let limits = RateLimit {
                 limit: rate_limit(&headers)?,
                 remaining: rate_limit_remaining(&headers)?,
-                reset_at: rate_limit_reset(&headers)? as i64,
+                reset_at: i64::from(rate_limit_reset(&headers)?),
             };
             debug!("API v3 limits: {:?}", limits);
             Some(limits)

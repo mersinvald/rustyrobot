@@ -1,6 +1,5 @@
 extern crate rustyrobot;
 
-#[macro_use]
 extern crate serde_derive;
 extern crate serde;
 extern crate serde_json as json;
@@ -16,10 +15,8 @@ mod fetcher;
 
 
 use failure::Error;
-use std::io::Write;
-use std::fs::File;
 
-use std::time::{Instant, Duration as StdDuration};
+use std::time::Duration as StdDuration;
 use chrono::Duration;
 
 fn init_fern() -> Result<(), Error> {
@@ -46,25 +43,17 @@ fn init_fern() -> Result<(), Error> {
 
 use rustyrobot::{
     kafka::{
-        topic, group,
-        Event,
-        GithubRequest,
+        topic,
         util::{
             producer::ThreadedProducer,
-            handler::HandlingConsumer,
             state::StateHandler,
         }
     },
-    github::v4::Github as GithubV4,
-    github::v3::Github as GithubV3,
-    github::utils::load_token,
-    types::Repository,
     search::{
-        search,
         query::SearchFor,
-        query::{Lang, Query, IncompleteQuery},
+        query::{Lang, Query},
     },
-    shutdown::{GracefulShutdown, GracefulShutdownHandle},
+    shutdown::{GracefulShutdown},
 };
 
 use std::thread;

@@ -1,24 +1,16 @@
 use rdkafka::{
-    message::{BorrowedMessage, OwnedMessage, Message},
     producer::{BaseRecord, BaseProducer},
-    consumer::{Consumer, BaseConsumer},
     message::ToBytes,
     ClientConfig,
 };
 
-use threadpool::{ThreadPool, Builder};
-use serde::{Serialize, de::DeserializeOwned};
-use failure::{Error, err_msg};
+use serde::Serialize;
+use failure::Error;
 use json;
 use uuid::Uuid;
 
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
-use std::marker::PhantomData;
-use std::sync::Arc;
-use std::rc::Rc;
-use std::cell::RefCell;
-use std::fmt::Debug;
 
 use shutdown::GracefulShutdownHandle;
 
@@ -52,7 +44,7 @@ impl ThreadedProducer {
             let thread_description = format!("producer poller for {}", topic);
             thread::spawn(move || {
                 let thread_id = format!("{} ({:?})", thread_description, thread::current().id());
-                let lock = shutdown.started(thread_id);
+                let _lock = shutdown.started(thread_id);
                 while !shutdown.should_shutdown() {
                     producer.poll(Duration::from_millis(200));
                 }
@@ -111,7 +103,7 @@ impl ThreadedProducerHandle {
                 {
                     Ok(()) => break,
                     Err((e, _)) => {
-                        warn!("Failed to enqueue, retrying");
+                        warn!("Failed to enqueue, retrying: {}", e);
                         thread::sleep(Duration::from_millis(100));
                     },
                 }

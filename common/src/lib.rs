@@ -48,23 +48,8 @@ pub mod kafka;
 pub static RESOURCES_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/res");
 
 use failure::Error;
-use gh4::StatusCode;
-use gh4::client::Github;
-use gh4::query::Query;
-use gh4::mutation::Mutation;
-use json::Value;
-use std::fmt::{Display, Debug};
-use chrono::{DateTime, Utc};
-use serde::Deserialize;
-
-use error_chain_failure_interop::ResultExt;
-use search::*;
-use search::query::*;
-
-pub type Response = Result<ResponseBody, Error>;
-pub type ResponseBody = Value;
-
 use std::env;
+
 pub fn load_token() -> Result<String, Error> {
     // First search .env
     let token = dotenv::var("GITHUB_TOKEN")

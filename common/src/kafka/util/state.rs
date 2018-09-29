@@ -1,18 +1,15 @@
 use rdkafka::{
-    message::{BorrowedMessage, OwnedMessage, Message},
-    producer::{BaseRecord, BaseProducer},
+    message::{BorrowedMessage, Message},
     consumer::{Consumer, BaseConsumer},
     error::KafkaError,
     ClientConfig,
 };
 
 use kafka::util::producer::ThreadedProducer;
-use shutdown::{GracefulShutdown, GracefulShutdownHandle};
+use shutdown::GracefulShutdown;
 
 use std::ops::{Index, IndexMut};
 
-use threadpool::{ThreadPool, Builder};
-use serde::{Serialize, de::DeserializeOwned};
 use failure::{Error, err_msg};
 use json::{self, Value};
 use uuid;
@@ -65,7 +62,7 @@ impl StateHandler {
         for message in &consumer {
             let message = match message {
                 Ok(message) => message,
-                Err(KafkaError::PartitionEOF(n)) => {
+                Err(KafkaError::PartitionEOF(_)) => {
                     info!("restored from {}", self.topic);
                     break;
                 },
@@ -157,17 +154,17 @@ impl StateHandler {
         let mut changes = Vec::new();
 
         for (new_key, new_value) in &self.new {
-            let changed = if let Some((old_key, old_value)) = self.old.get_key_value(new_key) {
+            let changed = if let Some(old_value) = self.old.get(new_key) {
                 new_value != old_value
             } else {
                 true
             };
 
             if changed {
-                let change = ((
+                let change = (
                     new_key.to_owned(),
                     new_value.to_owned(),
-                ));
+                );
 
                 changes.push(change);
             }
@@ -213,11 +210,11 @@ trait FromStateChange: Sized {
 
 impl<'a> IntoStateChange for BorrowedMessage<'a> {
     fn into_state_change(&self) -> Result<StateChange, Error> {
-        let key = self.key().ok_or(
+        let key = self.key().ok_or_else(||
             err_msg("Missing key on state change")
         )?;
 
-        let value = self.payload().ok_or(
+        let value = self.payload().ok_or_else(||
             err_msg("Empty state change")
         )?;
 
@@ -276,11 +273,9 @@ impl<T: FromJsonValue> FromJsonValue for Vec<T> {
 #[cfg(test)]
 mod tests {
     use super::StateHandler;
-    use json::{Value, Number};
+    use json::Value;
     use env_logger;
     use uuid::Uuid;
-    use std::collections::HashSet;
-    use shutdown::GracefulShutdown;
 
     #[test]
     fn save_and_restore() {
@@ -301,7 +296,7 @@ mod tests {
     fn save_and_restore_through_drops() {
         env_logger::try_init();
         let mut last_value = String::new();
-        for i in 0..10 {
+        for _ in 0..10 {
             let mut state = StateHandler::new("rustyrobot.test.state.save_and_restore").unwrap();
             state.restore().unwrap();
             if !last_value.is_empty() {

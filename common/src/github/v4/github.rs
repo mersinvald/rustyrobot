@@ -1,20 +1,9 @@
 use failure::Error;
-use gh4::StatusCode;
-use gh4::query::Query;
-use gh4::mutation::Mutation;
 use json::Value;
-use std::fmt::{Display, Debug};
-use chrono::{DateTime, Utc};
 use serde::de::DeserializeOwned;
-use std::sync::{Arc, Mutex, mpsc};
-use std::sync::mpsc::TryRecvError;
 use std::borrow::Cow;
 use std::thread;
 use std::time::Duration;
-
-use error_chain_failure_interop::ResultExt;
-use search::*;
-use search::query::*;
 
 use github::v4::client::Client;
 use github::v4::client::Request;

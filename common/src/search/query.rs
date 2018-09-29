@@ -1,7 +1,4 @@
-use std::borrow::Cow;
 use failure::Error;
-use std::marker::PhantomData;
-use super::NodeType;
 
 static ARG_LIST_DELIMITER: &str = ", ";
 static QUERY_DELIMITER: &str = " ";
@@ -30,8 +27,8 @@ pub enum SearchFor {
 }
 
 impl SearchFor {
-    fn type_str(&self) -> &'static str {
-        match *self {
+    fn type_str(self) -> &'static str {
+        match self {
             SearchFor::Repository => "REPOSITORY",
             SearchFor::Undefined => panic!("Search target is not defined"),
         }
@@ -112,11 +109,11 @@ impl IncompleteQuery {
         self
     }
 
-    pub fn lang(mut self, lang: Lang) -> Self {
+    pub fn lang(self, lang: Lang) -> Self {
         self.raw_query(lang.as_query_segment())
     }
 
-    pub fn owner(mut self, owner: &str) -> Self {
+    pub fn owner(self, owner: &str) -> Self {
         self.raw_query(
             format!("user:{}", owner)
         )

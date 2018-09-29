@@ -39,7 +39,7 @@ pub fn load_token() -> Result<String, Error> {
     // First search .env
     let token = dotenv::var("GITHUB_TOKEN")
         // Then environment variables
-        .or_else(|e| {
+        .or_else(|_| {
             env::var("GITHUB_TOKEN")
         })?;
 

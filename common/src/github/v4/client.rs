@@ -2,16 +2,12 @@ use failure::Error;
 use gh4::StatusCode;
 use gh4::client::Github as Driver;
 use gh4::query::Query;
-use gh4::mutation::Mutation;
 use json::Value;
-use std::fmt::{Display, Debug};
+use std::fmt::Display;
 use chrono::{DateTime, Utc};
 use serde::de::DeserializeOwned;
-use std::time::Duration;
 use std::borrow::Cow;
 use error_chain_failure_interop::ResultExt;
-use search::*;
-use search::query::*;
 use json;
 use github::utils;
 use github::GithubClient;
@@ -46,7 +42,7 @@ impl GithubClient for Client {
             RequestType::Query(query) => {
                 Self::run_query::<_, &str>(&mut self.driver.borrow_mut(), description, query, None)
             },
-            RequestType::Mutation(query) => {
+            RequestType::Mutation(_query) => {
                 unimplemented!()
             }
         };

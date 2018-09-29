@@ -1,19 +1,15 @@
 use rdkafka::{
-    message::{BorrowedMessage, OwnedMessage, Message},
-    producer::{BaseRecord, BaseProducer},
+    message::Message,
     consumer::{Consumer, BaseConsumer, CommitMode},
     ClientConfig,
 };
 
-use threadpool::{ThreadPool, Builder};
 use serde::{Serialize, de::DeserializeOwned};
 use failure::{Error, err_msg};
 use json;
 
-use std::thread;
 use std::time::Duration;
 use std::marker::PhantomData;
-use std::sync::Arc;
 use std::rc::Rc;
 use std::cell::RefCell;
 use std::fmt::Debug;
@@ -22,7 +18,6 @@ use shutdown::GracefulShutdownHandle;
 use kafka::util::producer::ThreadedProducer;
 
 pub struct HandlingConsumer<I, O> {
-    pool: ThreadPool,
     group: String,
     input_topic: String,
     output_topic: Option<String>,
@@ -110,14 +105,14 @@ impl<I, O> HandlingConsumer<I, O>
             }
 
             // Prepare vector to store responses
-            let mut responses = Rc::new(RefCell::new(Vec::new()));
+            let responses = Rc::new(RefCell::new(Vec::new()));
 
             // Pass message to handler
             {
                 let responses = responses.clone();
                 let mut callback = move |resp| responses.borrow_mut().push(resp);
                 match (self.handler)(payload, &mut callback) {
-                    Ok(result) => trace!("message handled successfully"),
+                    Ok(_) => trace!("message handled successfully"),
                     Err(HandlerError::Other { error }) => {
                         error!("handler failed to process message: {}", error);
                         consumer.commit_message(&borrowed_message, CommitMode::Sync)?;
@@ -169,7 +164,6 @@ pub enum HandlerError {
 }
 
 pub struct HandlerThreadPoolBuilder<I, O> {
-    n_threads: Option<usize>,
     group: Option<String>,
     input_topic: Option<String>,
     output_topic: Option<String>,
@@ -183,11 +177,6 @@ impl<I, O> HandlerThreadPoolBuilder<I, O>
     where I: DeserializeOwned,
           O: Serialize
 {
-    pub fn pool_size(mut self, n: usize) -> Self {
-        self.n_threads = Some(n);
-        self
-    }
-
     pub fn subscribe(mut self, topic: impl AsRef<str>) -> Self {
         self.input_topic = Some(topic.as_ref().to_owned());
         self
@@ -219,20 +208,11 @@ impl<I, O> HandlerThreadPoolBuilder<I, O>
     }
 
     pub fn build(self) -> Result<HandlingConsumer<I, O>, Error> {
-        let pool = if let Some(n_threads) = self.n_threads {
-            Builder::new()
-                .num_threads(n_threads)
-                .build()
-        } else {
-            Builder::new()
-                .build()
-        };
-
-        let group = self.group.ok_or(
+        let group = self.group.ok_or_else(||
             err_msg("Group ID is undefined")
         )?;
 
-        let input_topic = self.input_topic.ok_or(
+        let input_topic = self.input_topic.ok_or_else(||
             err_msg("No topic to subscribe")
         )?;
 
@@ -242,13 +222,12 @@ impl<I, O> HandlerThreadPoolBuilder<I, O>
 
         let key = self.key;
 
-        let handler = self.handler.ok_or(
+        let handler = self.handler.ok_or_else(||
             err_msg("No handler function")
         )?;
 
         Ok(
             HandlingConsumer {
-                pool,
                 group,
                 input_topic,
                 output_topic,
@@ -265,7 +244,6 @@ impl<I, O> Default for HandlerThreadPoolBuilder<I, O> {
     fn default() -> Self {
         HandlerThreadPoolBuilder {
             _marker: PhantomData,
-            n_threads: None,
             group: None,
             input_topic: None,
             output_topic: None,
@@ -284,6 +262,7 @@ mod tests {
     use env_logger;
     use uuid::Uuid;
     use std::sync::{Arc, Mutex};
+    use rdkafka::producer::{BaseProducer, BaseRecord};
 
     #[derive(Clone, Debug, Serialize, Deserialize)]
     struct Payload(String);
@@ -317,7 +296,6 @@ mod tests {
 
     fn supplier(shutdown: GracefulShutdownHandle) {
         HandlingConsumer::builder()
-            .pool_size(4)
             .group("handler.test.supplier")
             .subscribe("rustyrobot.test.handler.in")
             .respond_to("rustyrobot.test.handler.out")
@@ -327,7 +305,8 @@ mod tests {
             })
             .build()
             .unwrap()
-            .start(shutdown.clone());
+            .start(shutdown.clone())
+            .unwrap();
     }
 
     fn client(id: &'static str, shutdown: GracefulShutdownHandle) {
@@ -355,18 +334,18 @@ mod tests {
         let counter = Arc::new(Mutex::new(0));
         let counter_copy = counter.clone();
         HandlingConsumer::builder()
-            .pool_size(4)
             .group(&format!("handler.test.client.{}", id))
             .subscribe("rustyrobot.test.handler.out")
             .filter(move |msg: &Payload| msg.0 == id)
-            .handler(move |msg: Payload, callback: &mut dyn FnMut(())| {
+            .handler(move |msg: Payload, _callback: &mut dyn FnMut(())| {
                 assert_eq!(msg.0, id);
                 *counter_copy.lock().unwrap() += 1;
                 Ok(())
             })
             .build()
             .unwrap()
-            .start(shutdown.clone());
+            .start(shutdown.clone())
+            .unwrap();
 
         assert_eq!(send_cnt, *counter.lock().unwrap());
     }

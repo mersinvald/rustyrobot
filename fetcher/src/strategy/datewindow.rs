@@ -4,13 +4,9 @@ use failure::Error;
 use chrono::NaiveDate;
 use chrono::Utc;
 use chrono::Duration;
-use json;
 
 use rustyrobot::{
-    search::{
-        search,
-        query::IncompleteQuery,
-    },
+    search::query::IncompleteQuery,
 };
 
 use fetcher::FetcherState;

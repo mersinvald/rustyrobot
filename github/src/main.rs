@@ -4,11 +4,9 @@ extern crate ctrlc;
 extern crate failure;
 #[macro_use]
 extern crate log;
-#[macro_use]
 extern crate fern;
 extern crate chrono;
 extern crate github_rs as github_v3;
-#[macro_use]
 extern crate serde_derive;
 extern crate serde;
 extern crate serde_json as json;
@@ -36,14 +34,6 @@ use rustyrobot::{
         query::IncompleteQuery,
     },
     shutdown::{GracefulShutdown, GracefulShutdownHandle},
-};
-
-use rdkafka::{
-    ClientConfig,
-    producer::{
-        ThreadedProducer,
-        DefaultProducerContext
-    }
 };
 
 fn init_fern() -> Result<(), Error> {
@@ -106,7 +96,7 @@ fn main() {
 
             increment_stat_counter("requests received");
 
-            let event = match msg {
+            match msg {
                 GithubRequest::Fetch(query) => {
                     match query.search_for {
                         SearchFor::Repository => {
@@ -132,12 +122,11 @@ fn main() {
             };
 
             increment_stat_counter("requests handled");
-            Ok(event)
+            Ok(())
         }
     };
 
     HandlingConsumer::builder()
-        .pool_size(4)
         .subscribe(topic::GITHUB_REQUEST)
         .respond_to(topic::EVENT)
         .group(group::GITHUB)
