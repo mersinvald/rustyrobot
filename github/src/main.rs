@@ -19,7 +19,8 @@ use failure::Error;
 use rustyrobot::{
     kafka::{
         topic, group,
-        github::{GithubRequest, GithubEvent},
+        Event,
+        GithubRequest,
         util::{
             handler::{HandlingConsumer, HandlerError},
             state::StateHandler,
@@ -28,7 +29,7 @@ use rustyrobot::{
     github::v4::Github as GithubV4,
     github::v3::Github as GithubV3,
     github::utils::load_token,
-    types::{Repository, derive_fork},
+    types::{Repository},
     search::{
         search,
         query::SearchFor,
@@ -56,8 +57,8 @@ fn init_fern() -> Result<(), Error> {
                 message
             ))
         })
-        .level_for("github", log::LevelFilter::Debug)
-        .level_for("rustyrobot", log::LevelFilter::Debug)
+        .level_for("github", log::LevelFilter::Trace)
+        .level_for("rustyrobot", log::LevelFilter::Trace)
         .level(log::LevelFilter::Warn)
         .chain(std::io::stdout())
         .apply()?;
@@ -91,7 +92,7 @@ fn main() {
 
     let handler = {
         let shutdown_handle = shutdown_handle.clone();
-        move |msg, callback: &mut dyn FnMut(GithubEvent)| {
+        move |msg, callback: &mut dyn FnMut(Event)| {
             let increment_stat_counter = |key| {
                 let mut state = state.lock().unwrap();
                 state.increment(key);
@@ -113,7 +114,7 @@ fn main() {
                             let repos = fetch_all_repos(&github_v4, query, shutdown_handle.clone())?;
                             for repo in repos {
                                 increment_stat_counter("repositories fetched");
-                                callback(GithubEvent::RepositoryFetched(repo))
+                                callback(Event::RepositoryFetched(repo))
                             }
                             increment_stat_counter("repository fetch requests handled");
                         },
@@ -122,7 +123,11 @@ fn main() {
                 },
                 GithubRequest::Fork(repo) => {
                     let fork = fork_repo(&github_v3, &repo)?;
-                    callback(GithubEvent::RepositoryForked(fork))
+                    callback(Event::RepositoryForked(fork))
+                }
+                GithubRequest::DeleteFork(repo) => {
+                    delete_repo(&github_v3, &repo.name_with_owner)?;
+                    callback(Event::ForkDeleted(repo))
                 }
             };
 
@@ -134,7 +139,7 @@ fn main() {
     HandlingConsumer::builder()
         .pool_size(4)
         .subscribe(topic::GITHUB_REQUEST)
-        .respond_to(topic::GITHUB_EVENT)
+        .respond_to(topic::EVENT)
         .group(group::GITHUB)
         .handler(handler)
         .build()
@@ -142,6 +147,8 @@ fn main() {
         .start(shutdown_handle)
         .expect("github service failed");
 }
+
+use rustyrobot::types::repo;
 
 fn fetch_all_repos(gh: &GithubV4, query: IncompleteQuery, shutdown: GracefulShutdownHandle) -> Result<Vec<Repository>, HandlerError> {
     let mut repos = Vec::new();
@@ -160,12 +167,13 @@ fn fetch_all_repos(gh: &GithubV4, query: IncompleteQuery, shutdown: GracefulShut
 
         let query = query.map_err(|error| HandlerError::Internal { error })?;
 
-        let data = search(&gh, query)
+        let data = search::<repo::v4::Repository>(&gh, query)
             .map_err(|error| HandlerError::Internal { error })?;
 
         let page_info = data.page_info;
         let nodes = data.nodes;
-        repos.extend(nodes.into_iter());
+
+        repos.extend(nodes.into_iter().map(Repository::from));
 
         page = page_info.end_cursor;
         if !page_info.has_next_page {
@@ -177,17 +185,32 @@ fn fetch_all_repos(gh: &GithubV4, query: IncompleteQuery, shutdown: GracefulShut
     Ok(repos)
 }
 
-use rustyrobot::github::v3::ExecutorExt;
+use github_v3::StatusCode;
+use rustyrobot::github::v3::{EmptyResponse, ExecutorExt};
+use rustyrobot::search::NodeType;
 use json::Value;
 
-fn fork_repo(gh: &GithubV3, repo: &Repository) -> Result<Repository, HandlerError> {
-    let endpoint = format!("repos/{}/forks", &repo.name_with_owner);
+fn fork_repo(gh: &GithubV3, parent: &Repository) -> Result<Repository, HandlerError> {
+    let endpoint = format!("repos/{}/forks", &parent.name_with_owner);
     debug!("fork endpoint: {}", endpoint);
-    let value: Value = gh.post(()).custom_endpoint(&endpoint).send()
+    let value: Value = gh.post(())
+        .custom_endpoint(&endpoint)
+        .send(&[StatusCode::Accepted])
         .map_err(|error| HandlerError::Other { error })?;
 
-    let fork = derive_fork(repo, value)
+    let fork = Repository::from_value(value)
         .map_err(|error| HandlerError::Internal { error })?;
 
     Ok(fork)
+}
+
+fn delete_repo(gh: &GithubV3, repo_name: &str) -> Result<(), HandlerError> {
+    let endpoint = format!("repos/{}", repo_name);
+
+    let _value: EmptyResponse = gh.delete(())
+        .custom_endpoint(&endpoint)
+        .send(&[StatusCode::NoContent])
+        .map_err(|error| HandlerError::Internal { error })?;
+
+    Ok(())
 }

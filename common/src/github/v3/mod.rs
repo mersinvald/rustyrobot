@@ -22,12 +22,18 @@ use chrono::Utc;
 use chrono::NaiveDate;
 use std::thread;
 use std::time::Duration;
+use std::fmt::Debug;
 
-pub trait ExecutorExt: Executor + Sized {
-    fn send<T>(self) -> Result<T, Error>
+pub trait ExecutorExt<T>: Executor + Sized {
+    fn send(self, good_statuses: &[StatusCode]) -> Result<T, Error>;
+}
+
+impl<T, E: Executor + Sized> ExecutorExt<T> for E
+    where T: DeserializeOwned 
+{
+    fn send(self, good_statuses: &[StatusCode]) -> Result<T, Error>
         where T: DeserializeOwned
     {
-        // Check limits
         let now = Utc::now().timestamp();
         let limits = *RATE_LIMIT.read().unwrap();
         if limits.remaining < LIMIT_THRESHOLD && now < limits.reset_at {
@@ -37,7 +43,12 @@ pub trait ExecutorExt: Executor + Sized {
         }
 
         // Perform request
-        let (headers, status, json) = self.execute::<Value>().sync()?;
+        let (headers, status, data) = self.execute::<Value>().sync()?;
+
+        trace!("status: {}", status);
+        if data.is_none() {
+            trace!("response: empty");
+        }
 
         // Get rate limits info
         let rate_limit = || -> Option<RateLimit> {
@@ -55,8 +66,7 @@ pub trait ExecutorExt: Executor + Sized {
         }
 
         // Handle the response
-        trace!("status: {}", status);
-        let mut json = json.ok_or(RequestError::EmptyResponse)?;
+        let json = data.ok_or(RequestError::EmptyResponse)?;
         trace!("response: {}", json);
 
         if utils::is_rate_limit_error_v3(status, &json) {
@@ -64,16 +74,56 @@ pub trait ExecutorExt: Executor + Sized {
             raise!(RequestError::ExceededRateLimit { retry_in: 0 })
         }
 
-        match status {
-            StatusCode::Ok | StatusCode::Accepted => (),
-            status => raise!(RequestError::ResponseStatusNotOk { status: status.as_u16() })
+        if !good_statuses.contains(&status) {
+            raise!(RequestError::ResponseStatusNotOk { status: status.as_u16() })
         }
 
         Ok(json::from_value(json)?)
     }
 }
 
-impl<T: Executor + Sized> ExecutorExt for T {}
+pub struct EmptyResponse;
+
+impl<E: Executor + Sized> ExecutorExt<EmptyResponse> for E {
+    fn send(self, good_statuses: &[StatusCode]) -> Result<EmptyResponse, Error> {
+        let now = Utc::now().timestamp();
+        let limits = *RATE_LIMIT.read().unwrap();
+        if limits.remaining < LIMIT_THRESHOLD && now < limits.reset_at {
+            let timeout = limits.reset_at - Utc::now().timestamp();
+            warn!("request limit exceeded: retrying in {} seconds", timeout);
+            thread::sleep(Duration::from_secs(timeout as u64));
+        }
+
+        // Perform request
+        let (headers, status, data) = self.execute::<Value>().sync()?;
+
+        trace!("status: {}", status);
+        if data.is_none() {
+            trace!("response: empty");
+        }
+
+        // Get rate limits info
+        let rate_limit = || -> Option<RateLimit> {
+            let limits = RateLimit {
+                limit: rate_limit(&headers)?,
+                remaining: rate_limit_remaining(&headers)?,
+                reset_at: rate_limit_reset(&headers)? as i64,
+            };
+            debug!("API v3 limits: {:?}", limits);
+            Some(limits)
+        }();
+
+        if let Some(rate_limit) = rate_limit {
+            *RATE_LIMIT.write().unwrap() = rate_limit;
+        }
+
+        if !good_statuses.contains(&status) {
+            raise!(RequestError::ResponseStatusNotOk { status: status.as_u16() })
+        }
+
+        Ok(EmptyResponse)
+    }
+}
 
 #[derive(Copy, Clone, Debug, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]

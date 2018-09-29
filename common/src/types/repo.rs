@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc};
 use json::{self, Value};
 use failure::{err_msg, Error};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Repository {
     pub id: String,
     pub name_with_owner: String,
@@ -18,7 +18,6 @@ pub struct Repository {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct RepositoryParent {
     pub name_with_owner: String,
     pub ssh_url: String,
@@ -27,15 +26,25 @@ pub struct RepositoryParent {
 
 impl search::NodeType for Repository {
     fn from_value(json: Value) -> Result<Self, Error> {
-        let repo = v4::Repository::from_value(json.clone())
-            .map(Repository::from)
-            .or_else(|| v3::Repository::from_value(json)
-                .map(Repository::from))?;
+        let repo = match v4::Repository::from_value(json.clone()) {
+            Ok(repo) => Repository::from(repo),
+            Err(e) => {
+                warn!("failed to deserialize repo as Github v4 API repo: {}", e);
+                match v3::Repository::from_value(json) {
+                    Ok(repo) => Repository::from(repo),
+                    Err(e) => {
+                        error!("failed to deserialize repo as Github v3 API repo: {}", e); 
+                        bail!(err_msg("failed to deserialize Repository: not v4 nor v3 format"));
+                    }
+                }
+            }
+        };
+
         Ok(repo)
     }
 }
 
-mod v4 {
+pub mod v4 {
     use failure::Error;
     use chrono::{DateTime, Utc};
     use json::{self, Value};
@@ -87,14 +96,13 @@ mod v4 {
     }
 }
 
-mod v3 {
+pub mod v3 {
     use failure::Error;
     use chrono::{DateTime, Utc};
     use json::{self, Value};
     use search::NodeType;
 
     #[derive(Clone, Debug, Serialize, Deserialize)]
-    #[serde(rename_all = "camelCase")]
     pub struct Repository {
         pub id: i64,
         pub full_name: String,
@@ -103,12 +111,18 @@ mod v3 {
         pub html_url: String,
         pub default_branch: String,
         pub created_at: DateTime<Utc>,
-        // TODO
-        pub parent: Option<super::RepositoryParent>,
+        pub parent: Option<RepositoryParent>,
         pub has_issues: bool,
-        // TODO
-        pub is_fork: bool,
+        pub fork: bool,
     }
+
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    pub struct RepositoryParent {
+        pub full_name: String,
+        pub ssh_url: String,
+        pub html_url: String,
+    }
+
 
     impl NodeType for Repository {
         fn from_value(json: Value) -> Result<Self, Error> {
@@ -127,16 +141,19 @@ mod v3 {
                 url: v3.html_url,
                 default_branch: v3.default_branch,
                 created_at: v3.created_at,
-                // TODO
-                parent: v3.parent,
+                parent: v3.parent.map(|p| super::RepositoryParent {
+                    name_with_owner: p.full_name,
+                    ssh_url: p.ssh_url,
+                    url: p.html_url,
+                }),
                 has_issues_enabled: v3.has_issues,
-                // TODO
-                is_fork: v3.is_fork
+                is_fork: v3.fork
             }
         }
     }
 }
 
+/*
 use std::str::FromStr;
 
 // Fuck. This is mess. 
@@ -187,3 +204,4 @@ mod tests {
 
     }
 }
+*/

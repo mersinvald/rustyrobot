@@ -2,7 +2,7 @@ use failure::Error;
 use serde::Serialize;
 use json;
 
-use rustyrobot::kafka::github::GithubRequest;
+use rustyrobot::kafka::GithubRequest;
 use rustyrobot::search::query::IncompleteQuery;
 
 use super::Strategy;

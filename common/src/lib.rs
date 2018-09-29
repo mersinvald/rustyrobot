@@ -1,6 +1,7 @@
 #![feature(map_get_key_value)]
 #![feature(nll)]
 #![feature(transpose_result)]
+#![feature(specialization)]
 
 #[macro_use]
 extern crate failure;
@@ -68,7 +69,7 @@ pub fn load_token() -> Result<String, Error> {
     // First search .env
     let token = dotenv::var("GITHUB_TOKEN")
         // Then environment variables
-        .or_else(|e| {
+        .or_else(|_e| {
             env::var("GITHUB_TOKEN")
         })?;
 

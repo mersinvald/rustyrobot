@@ -1,13 +1,25 @@
-pub mod github;
 pub mod util;
 
-use serde::{Serialize, de::DeserializeOwned};
+use types::Repository;
+use search::query::IncompleteQuery;
 
-pub trait Event: Serialize + DeserializeOwned {}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum Event {
+    RepositoryFetched(Repository),
+    RepositoryForked(Repository),
+    ForkDeleted(Repository),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum GithubRequest {
+    Fetch(IncompleteQuery),
+    Fork(Repository),
+    DeleteFork(Repository),
+}
 
 pub mod topic {
     pub const GITHUB_REQUEST: &str = "rustyrobot.github.request";
-    pub const GITHUB_EVENT: &str = "rustyrobot.github.event";
+    pub const EVENT: &str = "rustyrobot.event";
     pub const GITHUB_STATE: &str = "rustyrobot.github.state";
     pub const FETCHER_STATE: &str = "rustyrobot.fetcher.state";
 }

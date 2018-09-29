@@ -47,7 +47,8 @@ fn init_fern() -> Result<(), Error> {
 use rustyrobot::{
     kafka::{
         topic, group,
-        github::{GithubRequest, GithubEvent},
+        Event,
+        GithubRequest,
         util::{
             producer::ThreadedProducer,
             handler::HandlingConsumer,
@@ -102,7 +103,7 @@ fn main() {
     // Setup fetching strategy
     let mut strategy = DateWindow {
         days_per_request: 1,
-        start_date: Some(NaiveDate::from_ymd(2016, 1, 1)),
+        start_date: Some(NaiveDate::from_ymd(2018, 8, 10)),
         ..Default::default()
     };
 

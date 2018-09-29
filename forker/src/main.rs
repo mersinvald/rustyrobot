@@ -13,7 +13,8 @@ use failure::Error;
 use rustyrobot::{
     kafka::{
         topic, group,
-        github::{GithubRequest, GithubEvent},
+        Event,
+        GithubRequest,
         util::{
             producer::ThreadedProducer,
             handler::HandlingConsumer,
@@ -71,12 +72,12 @@ fn main() {
 
     HandlingConsumer::builder()
         .pool_size(4)
-        .subscribe(topic::GITHUB_EVENT)
+        .subscribe(topic::EVENT)
         .respond_to(topic::GITHUB_REQUEST)
         .group(group::FORKER)
         .handler(|event, callback| {
             match event {
-                GithubEvent::RepositoryFetched(repo) => callback(GithubRequest::Fork(repo)),
+                Event::RepositoryFetched(repo) => callback(GithubRequest::Fork(repo)),
                 _ => (),
             }
             Ok(())
