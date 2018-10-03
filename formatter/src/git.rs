@@ -367,7 +367,8 @@ impl Git {
             "push",
             "--set-upstream",
             "origin",
-            target
+            target,
+            "--force"
         ];
 
         let status = Command::new(cmd)
