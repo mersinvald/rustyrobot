@@ -342,7 +342,7 @@ impl Git {
             "commit",
             "-a",
             "-m",
-            &format!("{:?}", msg),
+            msg,
         ];
 
         let status = Command::new(cmd)

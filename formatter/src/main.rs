@@ -112,9 +112,8 @@ use std::process::{Command, ExitStatus};
 const RUSTFMT_BRANCH: &str = "rustyrobot_suggested_formatting";
 
 fn rustfmt_repo(repo: Repository) -> Result<Repository, HandlerError> {
-    //let tempdir = tempdir::TempDir::new_in(".", &repo.name_with_owner.replace('/', "_")).map_err(HandlerError::internal)?;
-    //let path = tempdir.path();
-    let path = PathBuf::from("./formatter_repo");
+    let tempdir = tempdir::TempDir::new(&repo.name_with_owner.replace('/', "_")).map_err(HandlerError::internal)?;
+    let path = tempdir.path();
 
     // Clone repo
     let mut git = Git::clone(&path, &repo.ssh_url)
@@ -133,6 +132,8 @@ fn rustfmt_repo(repo: Repository) -> Result<Repository, HandlerError> {
     git.fetch("upstream")
         .map_err(HandlerError::internal)?;
     git.merge(&format!("upstream/{}", repo.default_branch))
+        .map_err(HandlerError::internal)?;
+    git.push("master")
         .map_err(HandlerError::internal)?;
 
     // Checkout working branch
