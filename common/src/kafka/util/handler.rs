@@ -163,6 +163,16 @@ pub enum HandlerError {
     }
 }
 
+impl HandlerError {
+    pub fn internal(error: impl Into<Error>) -> Self {
+        HandlerError::Internal { error: error.into() }
+    }
+
+    pub fn other(error: impl Into<Error>) -> Self {
+        HandlerError::Other { error: error.into() }
+    }
+}
+
 pub struct HandlerThreadPoolBuilder<I, O> {
     group: Option<String>,
     input_topic: Option<String>,

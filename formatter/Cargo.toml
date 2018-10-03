@@ -4,3 +4,16 @@ version = "0.1.0"
 authors = ["Mike Lubinets <lubinetsm@yandex.ru>"]
 
 [dependencies]
+rustyrobot = { path = "../common" }
+rdkafka = "0.17.0"
+ctrlc = "3.1.1"
+failure = "0.1.2"
+log = "0.4.5"
+fern = "0.5.6"
+chrono = "0.4.6"
+github-rs = "0.6.1"
+serde = "1.0.71"
+serde_json = "1.0.24"
+serde_derive = "1.0.71"
+git2 = "0.7.5"
+tempdir = "0.3.7"

@@ -8,6 +8,7 @@ pub enum Event {
     RepositoryFetched(Repository),
     RepositoryForked(Repository),
     ForkDeleted(Repository),
+    RepositoryFormatted(Repository),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -28,4 +29,5 @@ pub mod group {
     pub const GITHUB: &str = "rustyrobot.github";
     pub const FETCHER: &str = "rustyrobot.fetcher";
     pub const FORKER: &str = "rustyrobot.forker";
+    pub const FORMATTER: &str = "rustyrobot.formatter";
 }
