@@ -1,6 +1,6 @@
-extern crate rustyrobot;
-extern crate rdkafka;
 extern crate ctrlc;
+extern crate rdkafka;
+extern crate rustyrobot;
 #[macro_use]
 extern crate failure;
 #[macro_use]
@@ -11,44 +11,36 @@ extern crate chrono;
 extern crate github_rs as github_v3;
 #[macro_use]
 extern crate serde_derive;
+extern crate git2;
 extern crate serde;
 extern crate serde_json as json;
-extern crate git2;
 extern crate tempdir;
 
 mod git;
 
-use std::sync::{Arc, Mutex};
 use failure::Error;
+use std::sync::{Arc, Mutex};
 
 use rustyrobot::{
-    kafka::{
-        topic, group,
-        Event,
-        GithubRequest,
-        util::{
-            handler::{HandlingConsumer, HandlerError},
-            state::StateHandler,
-        }
-    },
-    github::v4::Github as GithubV4,
-    github::v3::Github as GithubV3,
     github::utils::load_token,
-    types::{Repository},
-    search::{
-        search,
-        query::SearchFor,
-        query::IncompleteQuery,
+    github::v3::Github as GithubV3,
+    github::v4::Github as GithubV4,
+    kafka::{
+        group, topic,
+        util::{
+            handler::{HandlerError, HandlingConsumer},
+            state::StateHandler,
+        },
+        Event, GithubRequest,
     },
+    search::{query::IncompleteQuery, query::SearchFor, search},
     shutdown::{GracefulShutdown, GracefulShutdownHandle},
+    types::Repository,
 };
 
 use rdkafka::{
+    producer::{DefaultProducerContext, ThreadedProducer},
     ClientConfig,
-    producer::{
-        ThreadedProducer,
-        DefaultProducerContext
-    }
 };
 
 fn init_fern() -> Result<(), Error> {
@@ -82,7 +74,8 @@ fn main() {
     ctrlc::set_handler(move || {
         info!("received Ctrl-C, shutting down");
         shutdown.shutdown()
-    }).unwrap();
+    })
+    .unwrap();
 
     HandlingConsumer::builder()
         .subscribe(topic::EVENT)
@@ -93,8 +86,8 @@ fn main() {
                 Event::RepositoryForked(repo) => {
                     //callback(Event::RepositoryFormatted(rustfmt_repo(repo)?))
                     rustfmt_repo(repo)?;
-                },
-                _ => ()
+                }
+                _ => (),
             }
             Ok(())
         })
@@ -104,24 +97,27 @@ fn main() {
         .expect("formatter service failed");
 }
 
-use std::path::{Path, PathBuf};
 use failure::err_msg;
-use git::{Git, CheckoutMode, DirHistory};
+use git::{CheckoutMode, DirHistory, Git};
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 
 const RUSTFMT_BRANCH: &str = "rustyrobot_suggested_formatting";
 
 fn rustfmt_repo(repo: Repository) -> Result<Repository, HandlerError> {
-    let tempdir = tempdir::TempDir::new(&repo.name_with_owner.replace('/', "_")).map_err(HandlerError::internal)?;
+    let tempdir = tempdir::TempDir::new(&repo.name_with_owner.replace('/', "_"))
+        .map_err(HandlerError::internal)?;
     let path = tempdir.path();
 
     // Clone repo
-    let mut git = Git::clone(&path, &repo.ssh_url)
-        .map_err(HandlerError::internal)?;
+    let mut git = Git::clone(&path, &repo.ssh_url).map_err(HandlerError::internal)?;
 
     // Checkout default branch
-    git.checkout(CheckoutMode::Branch { name: &repo.default_branch, create: false })
-        .map_err(HandlerError::internal)?;
+    git.checkout(CheckoutMode::Branch {
+        name: &repo.default_branch,
+        create: false,
+    })
+    .map_err(HandlerError::internal)?;
 
     // Sync with upstream
     // Add remote
@@ -129,24 +125,30 @@ fn rustfmt_repo(repo: Repository) -> Result<Repository, HandlerError> {
         git.add_remote("upstream", &repo.parent.as_ref().unwrap().ssh_url)
             .map_err(HandlerError::internal)?;
     }
-    git.fetch("upstream")
-        .map_err(HandlerError::internal)?;
+    git.fetch("upstream").map_err(HandlerError::internal)?;
     git.merge(&format!("upstream/{}", repo.default_branch))
         .map_err(HandlerError::internal)?;
-    git.push("master")
-        .map_err(HandlerError::internal)?;
+    git.push("master").map_err(HandlerError::internal)?;
 
     // Checkout working branch
-    if git.has_branch(RUSTFMT_BRANCH).map_err(HandlerError::internal)? {
-        git.checkout(CheckoutMode::Branch { name: RUSTFMT_BRANCH, create: false })
-            .map_err(HandlerError::internal)?;
-        git.reset("HEAD~1", true)
-            .map_err(HandlerError::internal)?;
+    if git
+        .has_branch(RUSTFMT_BRANCH)
+        .map_err(HandlerError::internal)?
+    {
+        git.checkout(CheckoutMode::Branch {
+            name: RUSTFMT_BRANCH,
+            create: false,
+        })
+        .map_err(HandlerError::internal)?;
+        git.reset("HEAD~1", true).map_err(HandlerError::internal)?;
         git.merge(&repo.default_branch)
             .map_err(HandlerError::internal)?;
     } else {
-        git.checkout(CheckoutMode::Branch { name: RUSTFMT_BRANCH, create: true })
-            .map_err(HandlerError::internal)?;
+        git.checkout(CheckoutMode::Branch {
+            name: RUSTFMT_BRANCH,
+            create: true,
+        })
+        .map_err(HandlerError::internal)?;
     }
 
     // Run code formatting
@@ -158,21 +160,17 @@ fn rustfmt_repo(repo: Repository) -> Result<Repository, HandlerError> {
     // Commit and push changes
     git.commit_all("rustyrobot formatting")
         .map_err(HandlerError::internal)?;
-    git.push(RUSTFMT_BRANCH)
-        .map_err(HandlerError::internal)?;
+    git.push(RUSTFMT_BRANCH).map_err(HandlerError::internal)?;
 
     Ok(repo)
 }
 
 fn format_code(path: &Path) -> Result<(), HandlerError> {
     let mut history = DirHistory::new();
-    let dirlock = history.pushd(path)
-        .map_err(HandlerError::internal)?;
+    let dirlock = history.pushd(path).map_err(HandlerError::internal)?;
 
     let cmd = "cargo";
-    let args = &[
-        "fmt",
-    ];
+    let args = &["fmt"];
 
     let status = Command::new(cmd)
         .args(args)

@@ -1,21 +1,21 @@
 use rdkafka::{
+    consumer::{BaseConsumer, CommitMode, Consumer},
     message::Message,
-    consumer::{Consumer, BaseConsumer, CommitMode},
     ClientConfig,
 };
 
-use serde::{Serialize, de::DeserializeOwned};
-use failure::{Error, err_msg};
+use failure::{err_msg, Error};
 use json;
+use serde::{de::DeserializeOwned, Serialize};
 
-use std::time::Duration;
-use std::marker::PhantomData;
-use std::rc::Rc;
 use std::cell::RefCell;
 use std::fmt::Debug;
+use std::marker::PhantomData;
+use std::rc::Rc;
+use std::time::Duration;
 
-use shutdown::GracefulShutdownHandle;
 use kafka::util::producer::ThreadedProducer;
+use shutdown::GracefulShutdownHandle;
 
 pub struct HandlingConsumer<I, O> {
     group: String,
@@ -28,19 +28,25 @@ pub struct HandlingConsumer<I, O> {
 }
 
 impl<I, O> HandlingConsumer<I, O>
-    where I: DeserializeOwned + Send + Debug + 'static,
-          O: Serialize + Send + 'static,
+where
+    I: DeserializeOwned + Send + Debug + 'static,
+    O: Serialize + Send + 'static,
 {
     pub fn builder() -> HandlerThreadPoolBuilder<I, O> {
         HandlerThreadPoolBuilder::default()
     }
 
     pub fn start(self, shutdown: GracefulShutdownHandle) -> Result<(), Error> {
-        info!("starting thread-pooled Handler {}/{} -> {:?}", self.input_topic, self.group, self.output_topic);
+        info!(
+            "starting thread-pooled Handler {}/{} -> {:?}",
+            self.input_topic, self.group, self.output_topic
+        );
 
-        let producer = self.output_topic.as_ref().map(|topic| {
-            ThreadedProducer::new(&topic, shutdown.clone())
-        }).transpose()?;
+        let producer = self
+            .output_topic
+            .as_ref()
+            .map(|topic| ThreadedProducer::new(&topic, shutdown.clone()))
+            .transpose()?;
 
         let consumer: BaseConsumer = ClientConfig::new()
             .set("bootstrap.servers", "127.0.0.1:9092")
@@ -59,16 +65,21 @@ impl<I, O> HandlingConsumer<I, O>
             // Filter-out errors
             let borrowed_message = match consumer.poll(Duration::from_millis(200)) {
                 Some(Ok(msg)) => {
-                    debug!("received message from {}: key: {:?}, offset {}", self.input_topic, msg.key_view::<str>(), msg.offset());
+                    debug!(
+                        "received message from {}: key: {:?}, offset {}",
+                        self.input_topic,
+                        msg.key_view::<str>(),
+                        msg.offset()
+                    );
                     msg
-                },
+                }
                 Some(Err(e)) => {
                     warn!("Failed to receive message: {}", e);
-                    continue
-                },
+                    continue;
+                }
                 None => {
                     trace!("No message");
-                    continue
+                    continue;
                 }
             };
 
@@ -87,11 +98,11 @@ impl<I, O> HandlingConsumer<I, O>
                 Ok(payload) => {
                     trace!("payload: {:?}", payload);
                     payload
-                },
+                }
                 Err(e) => {
                     error!("Payload is invalid json: {}", e);
                     consumer.commit_message(&borrowed_message, CommitMode::Sync)?;
-                    continue
+                    continue;
                 }
             };
 
@@ -100,7 +111,7 @@ impl<I, O> HandlingConsumer<I, O>
                 if !(filter)(&payload) {
                     trace!("received message filtered out");
                     consumer.commit_message(&borrowed_message, CommitMode::Sync)?;
-                    continue
+                    continue;
                 }
             }
 
@@ -119,7 +130,10 @@ impl<I, O> HandlingConsumer<I, O>
                         continue;
                     }
                     Err(HandlerError::Internal { error }) => {
-                        panic!("internal error, stopping the service without commit: {}", error);
+                        panic!(
+                            "internal error, stopping the service without commit: {}",
+                            error
+                        );
                     }
                 }
             }
@@ -154,22 +168,22 @@ impl<I, O> HandlingConsumer<I, O>
 #[derive(Debug, Fail)]
 pub enum HandlerError {
     #[fail(display = "internal error: {}", error)]
-    Internal {
-        error: Error
-    },
+    Internal { error: Error },
     #[fail(display = "{}", error)]
-    Other {
-        error: Error,
-    }
+    Other { error: Error },
 }
 
 impl HandlerError {
     pub fn internal(error: impl Into<Error>) -> Self {
-        HandlerError::Internal { error: error.into() }
+        HandlerError::Internal {
+            error: error.into(),
+        }
     }
 
     pub fn other(error: impl Into<Error>) -> Self {
-        HandlerError::Other { error: error.into() }
+        HandlerError::Other {
+            error: error.into(),
+        }
     }
 }
 
@@ -184,8 +198,9 @@ pub struct HandlerThreadPoolBuilder<I, O> {
 }
 
 impl<I, O> HandlerThreadPoolBuilder<I, O>
-    where I: DeserializeOwned,
-          O: Serialize
+where
+    I: DeserializeOwned,
+    O: Serialize,
 {
     pub fn subscribe(mut self, topic: impl AsRef<str>) -> Self {
         self.input_topic = Some(topic.as_ref().to_owned());
@@ -207,7 +222,10 @@ impl<I, O> HandlerThreadPoolBuilder<I, O>
         self
     }
 
-    pub fn handler(mut self, handler: impl Fn(I, &mut dyn FnMut(O)) -> Result<(), HandlerError> + 'static) -> Self {
+    pub fn handler(
+        mut self,
+        handler: impl Fn(I, &mut dyn FnMut(O)) -> Result<(), HandlerError> + 'static,
+    ) -> Self {
         self.handler = Some(Box::new(handler));
         self
     }
@@ -218,13 +236,11 @@ impl<I, O> HandlerThreadPoolBuilder<I, O>
     }
 
     pub fn build(self) -> Result<HandlingConsumer<I, O>, Error> {
-        let group = self.group.ok_or_else(||
-            err_msg("Group ID is undefined")
-        )?;
+        let group = self.group.ok_or_else(|| err_msg("Group ID is undefined"))?;
 
-        let input_topic = self.input_topic.ok_or_else(||
-            err_msg("No topic to subscribe")
-        )?;
+        let input_topic = self
+            .input_topic
+            .ok_or_else(|| err_msg("No topic to subscribe"))?;
 
         let output_topic = self.output_topic;
 
@@ -232,21 +248,17 @@ impl<I, O> HandlerThreadPoolBuilder<I, O>
 
         let key = self.key;
 
-        let handler = self.handler.ok_or_else(||
-            err_msg("No handler function")
-        )?;
+        let handler = self.handler.ok_or_else(|| err_msg("No handler function"))?;
 
-        Ok(
-            HandlingConsumer {
-                group,
-                input_topic,
-                output_topic,
-                key,
-                filter,
-                handler,
-                _marker: self._marker,
-            }
-        )
+        Ok(HandlingConsumer {
+            group,
+            input_topic,
+            output_topic,
+            key,
+            filter,
+            handler,
+            _marker: self._marker,
+        })
     }
 }
 
@@ -267,12 +279,12 @@ impl<I, O> Default for HandlerThreadPoolBuilder<I, O> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shutdown::GracefulShutdown;
-    use std::thread;
     use env_logger;
-    use uuid::Uuid;
-    use std::sync::{Arc, Mutex};
     use rdkafka::producer::{BaseProducer, BaseRecord};
+    use shutdown::GracefulShutdown;
+    use std::sync::{Arc, Mutex};
+    use std::thread;
+    use uuid::Uuid;
 
     #[derive(Clone, Debug, Serialize, Deserialize)]
     struct Payload(String);
@@ -332,11 +344,13 @@ mod tests {
         for _ in 0..send_cnt {
             let payload = Payload(id.to_string());
             let payload = json::to_string(&payload).unwrap();
-            producer.send(
-                BaseRecord::to("rustyrobot.test.handler.in")
-                    .key(&Uuid::new_v4().to_string())
-                    .payload(payload.as_bytes())
-            ).unwrap();
+            producer
+                .send(
+                    BaseRecord::to("rustyrobot.test.handler.in")
+                        .key(&Uuid::new_v4().to_string())
+                        .payload(payload.as_bytes()),
+                )
+                .unwrap();
         }
 
         producer.flush(Duration::from_secs(10));

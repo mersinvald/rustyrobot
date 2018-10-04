@@ -1,26 +1,25 @@
 extern crate rustyrobot;
 
-extern crate serde_derive;
-extern crate serde;
-extern crate serde_json as json;
 extern crate chrono;
 extern crate fern;
+extern crate serde;
+extern crate serde_derive;
+extern crate serde_json as json;
 #[macro_use]
 extern crate log;
-extern crate failure;
 extern crate ctrlc;
+extern crate failure;
 
-mod strategy;
 mod fetcher;
-
+mod strategy;
 
 use failure::Error;
 
-use std::time::Duration as StdDuration;
 use chrono::Duration;
+use std::time::Duration as StdDuration;
 
 fn init_fern() -> Result<(), Error> {
-  fern::Dispatch::new()
+    fern::Dispatch::new()
         .format(|out, message, record| {
             out.finish(format_args!(
                 "{}[{}][{}] {}",
@@ -44,22 +43,19 @@ fn init_fern() -> Result<(), Error> {
 use rustyrobot::{
     kafka::{
         topic,
-        util::{
-            producer::ThreadedProducer,
-            state::StateHandler,
-        }
+        util::{producer::ThreadedProducer, state::StateHandler},
     },
     search::{
         query::SearchFor,
         query::{Lang, Query},
     },
-    shutdown::{GracefulShutdown},
+    shutdown::GracefulShutdown,
 };
 
-use std::thread;
-use chrono::{Utc, NaiveDate};
-use strategy::DateWindow;
+use chrono::{NaiveDate, Utc};
 use fetcher::Fetcher;
+use std::thread;
+use strategy::DateWindow;
 
 fn main() {
     init_fern().unwrap();
@@ -72,7 +68,8 @@ fn main() {
     ctrlc::set_handler(move || {
         info!("got SIGINT (Ctrl-C) signal, shutting down");
         sigint_shutdown.shutdown();
-    }).expect("couldn't register SIGINT handler");
+    })
+    .expect("couldn't register SIGINT handler");
 
     // Fetch fetcher state
     let mut state = StateHandler::new(topic::FETCHER_STATE).expect("couldn't create StateHandler");
@@ -101,7 +98,12 @@ fn main() {
 
     while !shutdown.thread_handle().should_shutdown() {
         if Utc::now() >= fetch_time {
-            let mut fetcher = Fetcher::new(&mut state, producer.handle(), shutdown.thread_handle(), strategy.clone());
+            let mut fetcher = Fetcher::new(
+                &mut state,
+                producer.handle(),
+                shutdown.thread_handle(),
+                strategy.clone(),
+            );
 
             // Resetting start_date in strategy so we won't start over in next iteration
             strategy.start_date = None;

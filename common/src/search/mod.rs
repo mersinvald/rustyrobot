@@ -1,15 +1,15 @@
 pub mod query;
 
-use failure::Error;
 use self::query::Query;
-use std::fmt::Debug;
+use failure::Error;
 use github::v4::Github;
+use std::fmt::Debug;
 
-use json::Value;
 use json;
+use json::Value;
 
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 
 pub trait NodeType: Serialize + DeserializeOwned + Clone + Debug {
     fn from_value(json: Value) -> Result<Self, Error>;
@@ -30,15 +30,12 @@ pub struct SearchResult<N> {
     pub nodes: Vec<N>,
 }
 
-static REPO_QUERY: &'static str = include_str!(
-    concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/res/repo_query.gql"
-    )
-);
+static REPO_QUERY: &'static str =
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/res/repo_query.gql"));
 
 pub fn search<N>(gh: &Github, query: Query) -> Result<SearchResult<N>, Error>
-    where N: NodeType
+where
+    N: NodeType,
 {
     info!("performing search by {:?}", query);
 
@@ -59,7 +56,6 @@ pub fn search<N>(gh: &Github, query: Query) -> Result<SearchResult<N>, Error>
 
     Ok(data)
 }
-
 
 trait Uglify {
     fn uglify(self) -> String;

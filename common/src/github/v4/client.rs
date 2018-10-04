@@ -1,18 +1,18 @@
+use chrono::{DateTime, Utc};
+use error_chain_failure_interop::ResultExt;
 use failure::Error;
-use gh4::StatusCode;
 use gh4::client::Github as Driver;
 use gh4::query::Query;
-use json::Value;
-use std::fmt::Display;
-use chrono::{DateTime, Utc};
-use serde::de::DeserializeOwned;
-use std::borrow::Cow;
-use error_chain_failure_interop::ResultExt;
-use json;
+use gh4::StatusCode;
 use github::utils;
 use github::GithubClient;
 use github::RequestError;
+use json;
+use json::Value;
+use serde::de::DeserializeOwned;
+use std::borrow::Cow;
 use std::cell::RefCell;
+use std::fmt::Display;
 
 pub struct Client {
     driver: RefCell<Driver>,
@@ -35,23 +35,22 @@ pub struct Request {
 impl GithubClient for Client {
     type Request = Request;
     fn request<T>(&self, request: &Request) -> Result<T, Error>
-        where T: DeserializeOwned
+    where
+        T: DeserializeOwned,
     {
         let description = &request.description;
         let result = match &request.body {
             RequestType::Query(query) => {
                 Self::run_query::<_, &str>(&mut self.driver.borrow_mut(), description, query, None)
-            },
-            RequestType::Mutation(_query) => {
-                unimplemented!()
             }
+            RequestType::Mutation(_query) => unimplemented!(),
         };
 
         match result {
             Ok(data) => {
                 trace!("request succeeded");
                 Ok(data)
-            },
+            }
             Err(err) => {
                 error!("{} request failed: {}", description, err);
                 match err.downcast::<RequestError>() {
@@ -65,10 +64,10 @@ impl GithubClient for Client {
 
 impl Client {
     pub fn new<T>(token: T) -> Result<Self, Error>
-        where T: AsRef<str> + Display
+    where
+        T: AsRef<str> + Display,
     {
-        let mut driver = Driver::new(token)
-            .sync()?;
+        let mut driver = Driver::new(token).sync()?;
 
         let login = Self::run_get_login(&mut driver)?;
 
@@ -79,7 +78,7 @@ impl Client {
         let gh = Client {
             driver,
             login,
-            limit
+            limit,
         };
 
         Ok(gh)
@@ -91,8 +90,11 @@ impl Client {
                 let now = Utc::now();
                 let retry_in = self.limit.reset_at.timestamp() - now.timestamp();
                 assert!(retry_in >= 0);
-                Err(RequestError::ExceededRateLimit { retry_in: retry_in as u64 }.into())
-            },
+                Err(RequestError::ExceededRateLimit {
+                    retry_in: retry_in as u64,
+                }
+                .into())
+            }
             err => Err(err.into()),
         }
     }
@@ -104,7 +106,7 @@ impl Client {
             driver,
             "login",
             "query { viewer { login } }",
-            Some(&[&"data", &"viewer", &"login"])
+            Some(&[&"data", &"viewer", &"login"]),
         )?;
 
         info!("logged in as {:?}", login);
@@ -118,7 +120,7 @@ impl Client {
             driver,
             "rate limit",
             "query { rateLimit { limit remaining resetAt } }",
-            Some(&[&"data", &"rateLimit"])
+            Some(&[&"data", &"rateLimit"]),
         )?;
 
         limit.used = limit.limit - limit.remaining;
@@ -130,13 +132,17 @@ impl Client {
         Ok(limit)
     }
 
-    fn run_query<T, S>(driver: &mut Driver, description: &str, query: &str, json_selectors: Option<&[&S]>) -> Result<T, Error>
-        where T: DeserializeOwned,
-              S: json::value::Index,
+    fn run_query<T, S>(
+        driver: &mut Driver,
+        description: &str,
+        query: &str,
+        json_selectors: Option<&[&S]>,
+    ) -> Result<T, Error>
+    where
+        T: DeserializeOwned,
+        S: json::value::Index,
     {
-        let (_, status, json) = driver.query::<Value>(
-            &Query::new_raw(query)
-        ).sync()?;
+        let (_, status, json) = driver.query::<Value>(&Query::new_raw(query)).sync()?;
 
         debug!("{} status: {}", description, status);
         let mut json = json.ok_or(RequestError::EmptyResponse)?;
@@ -149,7 +155,9 @@ impl Client {
 
         match status {
             StatusCode::Ok => (),
-            status => raise!(RequestError::ResponseStatusNotOk { status: status.as_u16() })
+            status => raise!(RequestError::ResponseStatusNotOk {
+                status: status.as_u16()
+            }),
         }
 
         if let Some(selectors) = json_selectors {

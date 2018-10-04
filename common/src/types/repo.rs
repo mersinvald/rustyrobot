@@ -1,7 +1,7 @@
-use search;
 use chrono::{DateTime, Utc};
-use json::Value;
 use failure::{err_msg, Error};
+use json::Value;
+use search;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Repository {
@@ -33,8 +33,10 @@ impl search::NodeType for Repository {
                 match v3::Repository::from_value(json) {
                     Ok(repo) => Repository::from(repo),
                     Err(e) => {
-                        error!("failed to deserialize repo as Github v3 API repo: {}", e); 
-                        bail!(err_msg("failed to deserialize Repository: not v4 nor v3 format"));
+                        error!("failed to deserialize repo as Github v3 API repo: {}", e);
+                        bail!(err_msg(
+                            "failed to deserialize Repository: not v4 nor v3 format"
+                        ));
                     }
                 }
             }
@@ -45,8 +47,8 @@ impl search::NodeType for Repository {
 }
 
 pub mod v4 {
-    use failure::Error;
     use chrono::{DateTime, Utc};
+    use failure::Error;
     use json::{self, Value};
     use search::NodeType;
 
@@ -90,15 +92,15 @@ pub mod v4 {
                 created_at: v4.created_at,
                 parent: v4.parent,
                 has_issues_enabled: v4.has_issues_enabled,
-                is_fork: v4.is_fork
+                is_fork: v4.is_fork,
             }
         }
     }
 }
 
 pub mod v3 {
-    use failure::Error;
     use chrono::{DateTime, Utc};
+    use failure::Error;
     use json::{self, Value};
     use search::NodeType;
 
@@ -123,7 +125,6 @@ pub mod v3 {
         pub html_url: String,
     }
 
-
     impl NodeType for Repository {
         fn from_value(json: Value) -> Result<Self, Error> {
             let repo = json::from_value(json)?;
@@ -147,7 +148,7 @@ pub mod v3 {
                     url: p.html_url,
                 }),
                 has_issues_enabled: v3.has_issues,
-                is_fork: v3.fork
+                is_fork: v3.fork,
             }
         }
     }

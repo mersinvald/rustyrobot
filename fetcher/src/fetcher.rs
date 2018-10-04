@@ -1,14 +1,10 @@
-use strategy::{Strategy, DateWindow};
 use failure::Error;
-
+use strategy::{DateWindow, Strategy};
 
 use rustyrobot::{
+    kafka::util::{producer::ThreadedProducerHandle, state::StateHandler},
     search::query::IncompleteQuery,
     shutdown::GracefulShutdownHandle,
-    kafka::util::{
-        state::StateHandler,
-        producer::ThreadedProducerHandle,
-    }
 };
 
 pub struct FetcherState<'a> {
@@ -23,7 +19,11 @@ pub struct Fetcher<'a, S: Strategy> {
 }
 
 impl<'a> Fetcher<'a, DateWindow> {
-    pub fn new_with_default_strategy(state: &'a mut StateHandler, producer: ThreadedProducerHandle, shutdown: GracefulShutdownHandle) -> Self {
+    pub fn new_with_default_strategy(
+        state: &'a mut StateHandler,
+        producer: ThreadedProducerHandle,
+        shutdown: GracefulShutdownHandle,
+    ) -> Self {
         Fetcher::new(
             state,
             producer,
@@ -31,13 +31,18 @@ impl<'a> Fetcher<'a, DateWindow> {
             DateWindow {
                 days_per_request: 1,
                 ..Default::default()
-            }
+            },
         )
     }
 }
 
 impl<'a, S: Strategy> Fetcher<'a, S> {
-    pub fn new(state: &'a mut StateHandler, producer: ThreadedProducerHandle, shutdown: GracefulShutdownHandle, strategy: S) -> Self {
+    pub fn new(
+        state: &'a mut StateHandler,
+        producer: ThreadedProducerHandle,
+        shutdown: GracefulShutdownHandle,
+        strategy: S,
+    ) -> Self {
         Fetcher {
             state: FetcherState {
                 shutdown,
@@ -53,5 +58,3 @@ impl<'a, S: Strategy> Fetcher<'a, S> {
         Ok(())
     }
 }
-
-

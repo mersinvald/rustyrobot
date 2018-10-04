@@ -1,39 +1,34 @@
-extern crate rustyrobot;
-extern crate rdkafka;
 extern crate ctrlc;
 extern crate failure;
+extern crate rdkafka;
+extern crate rustyrobot;
 #[macro_use]
 extern crate log;
-extern crate fern;
 extern crate chrono;
+extern crate fern;
 extern crate github_rs as github_v3;
-extern crate serde_derive;
 extern crate serde;
+extern crate serde_derive;
 extern crate serde_json as json;
 
-use std::sync::{Arc, Mutex};
 use failure::Error;
+use std::sync::{Arc, Mutex};
 
 use rustyrobot::{
-    kafka::{
-        topic, group,
-        Event,
-        GithubRequest,
-        util::{
-            handler::{HandlingConsumer, HandlerError},
-            state::StateHandler,
-        }
-    },
-    github::v4::Github as GithubV4,
-    github::v3::Github as GithubV3,
     github::utils::load_token,
-    types::{Repository},
-    search::{
-        search,
-        query::SearchFor,
-        query::IncompleteQuery,
+    github::v3::Github as GithubV3,
+    github::v4::Github as GithubV4,
+    kafka::{
+        group, topic,
+        util::{
+            handler::{HandlerError, HandlingConsumer},
+            state::StateHandler,
+        },
+        Event, GithubRequest,
     },
+    search::{query::IncompleteQuery, query::SearchFor, search},
     shutdown::{GracefulShutdown, GracefulShutdownHandle},
+    types::Repository,
 };
 
 fn init_fern() -> Result<(), Error> {
@@ -67,15 +62,14 @@ fn main() {
     ctrlc::set_handler(move || {
         info!("received Ctrl-C, shutting down");
         shutdown.shutdown()
-    }).unwrap();
+    })
+    .unwrap();
 
-    let mut state = StateHandler::new(topic::GITHUB_STATE)
-        .expect("failed to open state");
+    let mut state = StateHandler::new(topic::GITHUB_STATE).expect("failed to open state");
     state.restore().expect("failed to restore state");
     let state = Arc::new(Mutex::new(state));
 
-    let token = load_token()
-        .expect("failed to load token (set GITHUB_TOKEN env)");
+    let token = load_token().expect("failed to load token (set GITHUB_TOKEN env)");
 
     let github_v3 = GithubV3::new(&token).expect("failed to create GitHub V3 API instance");
     let github_v4 = GithubV4::new(&token).expect("failed to create GitHub V4 API instance");
@@ -97,18 +91,18 @@ fn main() {
             increment_stat_counter("requests received");
 
             match msg {
-                GithubRequest::Fetch(query) => {
-                    match query.search_for {
-                        SearchFor::Repository => {
-                            increment_stat_counter("repository fetch requests received");
-                            let repos = fetch_all_repos(&github_v4, query, shutdown_handle.clone())?;
-                            for repo in repos {
-                                increment_stat_counter("repositories fetched");
-                                callback(Event::RepositoryFetched(repo))
-                            }
-                            increment_stat_counter("repository fetch requests handled");
-                        },
-                        SearchFor::Undefined => panic!("search_for is Undefined: can't fetch an undefined entity")
+                GithubRequest::Fetch(query) => match query.search_for {
+                    SearchFor::Repository => {
+                        increment_stat_counter("repository fetch requests received");
+                        let repos = fetch_all_repos(&github_v4, query, shutdown_handle.clone())?;
+                        for repo in repos {
+                            increment_stat_counter("repositories fetched");
+                            callback(Event::RepositoryFetched(repo))
+                        }
+                        increment_stat_counter("repository fetch requests handled");
+                    }
+                    SearchFor::Undefined => {
+                        panic!("search_for is Undefined: can't fetch an undefined entity")
                     }
                 },
                 GithubRequest::Fork(repo) => {
@@ -139,7 +133,11 @@ fn main() {
 
 use rustyrobot::types::repo;
 
-fn fetch_all_repos(gh: &GithubV4, query: IncompleteQuery, shutdown: GracefulShutdownHandle) -> Result<Vec<Repository>, HandlerError> {
+fn fetch_all_repos(
+    gh: &GithubV4,
+    query: IncompleteQuery,
+    shutdown: GracefulShutdownHandle,
+) -> Result<Vec<Repository>, HandlerError> {
     let mut repos = Vec::new();
 
     let mut page = None;
@@ -175,20 +173,20 @@ fn fetch_all_repos(gh: &GithubV4, query: IncompleteQuery, shutdown: GracefulShut
 }
 
 use github_v3::StatusCode;
+use json::Value;
 use rustyrobot::github::v3::{EmptyResponse, ExecutorExt};
 use rustyrobot::search::NodeType;
-use json::Value;
 
 fn fork_repo(gh: &GithubV3, parent: &Repository) -> Result<Repository, HandlerError> {
     let endpoint = format!("repos/{}/forks", &parent.name_with_owner);
     debug!("fork endpoint: {}", endpoint);
-    let value: Value = gh.post(())
+    let value: Value = gh
+        .post(())
         .custom_endpoint(&endpoint)
         .send(&[StatusCode::Accepted])
         .map_err(|error| HandlerError::Other { error })?;
 
-    let fork = Repository::from_value(value)
-        .map_err(|error| HandlerError::Internal { error })?;
+    let fork = Repository::from_value(value).map_err(|error| HandlerError::Internal { error })?;
 
     Ok(fork)
 }
@@ -196,7 +194,8 @@ fn fork_repo(gh: &GithubV3, parent: &Repository) -> Result<Repository, HandlerEr
 fn delete_repo(gh: &GithubV3, repo_name: &str) -> Result<(), HandlerError> {
     let endpoint = format!("repos/{}", repo_name);
 
-    let _value: EmptyResponse = gh.delete(())
+    let _value: EmptyResponse = gh
+        .delete(())
         .custom_endpoint(&endpoint)
         .send(&[StatusCode::NoContent])
         .map_err(|error| HandlerError::Internal { error })?;

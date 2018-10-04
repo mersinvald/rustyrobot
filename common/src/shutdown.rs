@@ -1,6 +1,6 @@
-use std::sync::RwLock;
-use std::sync::Arc;
 use std::collections::HashSet;
+use std::sync::Arc;
+use std::sync::RwLock;
 
 #[derive(Clone)]
 pub struct GracefulShutdown {
@@ -66,7 +66,7 @@ impl GracefulShutdownHandle {
         }
         GracefulShutdownStartedLock {
             name,
-            handle: self.clone()
+            handle: self.clone(),
         }
     }
 

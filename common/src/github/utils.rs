@@ -1,5 +1,5 @@
-use gh4;
 use gh3;
+use gh4;
 
 use json::Value;
 
@@ -27,21 +27,20 @@ pub fn get_error_message(body: &Value) -> Option<&str> {
 
 fn is_body_rate_limit_error(body: &Value) -> bool {
     let message = get_error_message(body);
-    message.map(|s| s.starts_with("API rate limit exceeded"))
+    message
+        .map(|s| s.starts_with("API rate limit exceeded"))
         .unwrap_or(false)
 }
 
-use std::env;
-use failure::Error;
 use dotenv;
+use failure::Error;
+use std::env;
 
 pub fn load_token() -> Result<String, Error> {
     // First search .env
     let token = dotenv::var("GITHUB_TOKEN")
         // Then environment variables
-        .or_else(|_| {
-            env::var("GITHUB_TOKEN")
-        })?;
+        .or_else(|_| env::var("GITHUB_TOKEN"))?;
 
     Ok(token)
 }

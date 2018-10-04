@@ -1,12 +1,12 @@
 use rdkafka::{
-    producer::{BaseRecord, BaseProducer},
     message::ToBytes,
+    producer::{BaseProducer, BaseRecord},
     ClientConfig,
 };
 
-use serde::Serialize;
 use failure::Error;
 use json;
+use serde::Serialize;
 use uuid::Uuid;
 
 use std::thread::{self, JoinHandle};
@@ -52,61 +52,62 @@ impl ThreadedProducer {
             })
         });
 
-        Ok(
-            ThreadedProducer {
-                producer,
-                topic,
-                poller,
-                shutdown,
-            }
-        )
+        Ok(ThreadedProducer {
+            producer,
+            topic,
+            poller,
+            shutdown,
+        })
     }
 
     pub fn handle(&self) -> ThreadedProducerHandle {
         ThreadedProducerHandle {
             producer: self.producer.clone(),
-            topic: self.topic.clone()
+            topic: self.topic.clone(),
         }
     }
 
     pub fn send<V>(&self, value: V) -> Result<(), Error>
-        where V: Serialize
+    where
+        V: Serialize,
     {
         self.handle().send(value)
     }
 
     pub fn send_with_key<V>(&self, key: impl ToBytes, value: V) -> Result<(), Error>
-        where V: Serialize
+    where
+        V: Serialize,
     {
         self.handle().send_with_key(key, value)
     }
-
 }
 
 impl ThreadedProducerHandle {
     pub fn send<V>(&self, value: V) -> Result<(), Error>
-        where V: Serialize
+    where
+        V: Serialize,
     {
         let key = Uuid::new_v4().to_string();
         self.send_with_key(key, value)
     }
 
     pub fn send_with_key<V>(&self, key: impl ToBytes, value: V) -> Result<(), Error>
-        where V: Serialize
+    where
+        V: Serialize,
     {
         let value = json::to_vec(&value)?;
         // Send retry loop (note that it only guarantees putting message into memory buffer)
         loop {
-            match self.producer.send(BaseRecord::to(&self.topic)
-                .key(&key)
-                .payload(&value))
-                {
-                    Ok(()) => break,
-                    Err((e, _)) => {
-                        warn!("Failed to enqueue, retrying: {}", e);
-                        thread::sleep(Duration::from_millis(100));
-                    },
+            match self
+                .producer
+                .send(BaseRecord::to(&self.topic).key(&key).payload(&value))
+            {
+                Ok(()) => break,
+                Err((e, _)) => {
+                    warn!("Failed to enqueue, retrying: {}", e);
+                    thread::sleep(Duration::from_millis(100));
                 }
+            }
         }
         debug!("produced message into {}", self.topic);
         Ok(())
@@ -119,7 +120,8 @@ impl Drop for ThreadedProducer {
             error!("called ThreadedProducer::drop is non-shutdown phase, would block forever");
         }
         if let Some(poller) = self.poller.take() {
-            poller.join()
+            poller
+                .join()
                 .unwrap_or_else(|err| error!("producer poller thread have panicked: {:?}", err))
         }
     }
