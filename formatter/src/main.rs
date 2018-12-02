@@ -62,8 +62,8 @@ fn init_fern() -> Result<(), Error> {
                 message
             ))
         })
-        .level_for("github", log::LevelFilter::Trace)
-        .level_for("formatter", log::LevelFilter::Trace)
+        .level_for("rustyrobot", log::LevelFilter::Debug)
+        .level_for("formatter", log::LevelFilter::Debug)
         .level(log::LevelFilter::Warn)
         .chain(std::io::stdout())
         .apply()?;
@@ -91,8 +91,7 @@ fn main() {
         .handler(|event, callback: &mut dyn FnMut(Event)| {
             match event {
                 Event::RepositoryForked(repo) => {
-                    //callback(Event::RepositoryFormatted(rustfmt_repo(repo)?))
-                    rustfmt_repo(repo)?;
+                    callback(Event::RepositoryFormatted(rustfmt_repo(repo)?));
                 },
                 _ => ()
             }
@@ -108,16 +107,19 @@ use std::path::{Path, PathBuf};
 use failure::err_msg;
 use git::{Git, CheckoutMode, DirHistory};
 use std::process::{Command, ExitStatus};
+use rustyrobot::types::{Stats, FormatStats};
 
 const RUSTFMT_BRANCH: &str = "rustyrobot_suggested_formatting";
 
-fn rustfmt_repo(repo: Repository) -> Result<Repository, HandlerError> {
+fn rustfmt_repo(mut repo: Repository) -> Result<Repository, HandlerError> {
     let tempdir = tempdir::TempDir::new(&repo.name_with_owner.replace('/', "_")).map_err(HandlerError::internal)?;
     let path = tempdir.path();
 
+    debug!("cloning repo {}", repo.name_with_owner);
     // Clone repo
     let mut git = Git::clone(&path, &repo.ssh_url)
         .map_err(HandlerError::internal)?;
+    info!("cloned repo {}", repo.name_with_owner);
 
     // Checkout default branch
     git.checkout(CheckoutMode::Branch { name: &repo.default_branch, create: false })
@@ -135,9 +137,11 @@ fn rustfmt_repo(repo: Repository) -> Result<Repository, HandlerError> {
         .map_err(HandlerError::internal)?;
     git.push("master")
         .map_err(HandlerError::internal)?;
+    info!("synced fork {} with upstream {}", repo.name_with_owner, repo.parent.as_ref().unwrap().name_with_owner);
 
     // Checkout working branch
     if git.has_branch(RUSTFMT_BRANCH).map_err(HandlerError::internal)? {
+        info!("branch {} already exists in {}, reverting previous change and merging with master", RUSTFMT_BRANCH, repo.name_with_owner);
         git.checkout(CheckoutMode::Branch { name: RUSTFMT_BRANCH, create: false })
             .map_err(HandlerError::internal)?;
         git.reset("HEAD~1", true)
@@ -145,21 +149,36 @@ fn rustfmt_repo(repo: Repository) -> Result<Repository, HandlerError> {
         git.merge(&repo.default_branch)
             .map_err(HandlerError::internal)?;
     } else {
+        info!("creating branch {} in {}", RUSTFMT_BRANCH, repo.name_with_owner);
         git.checkout(CheckoutMode::Branch { name: RUSTFMT_BRANCH, create: true })
             .map_err(HandlerError::internal)?;
     }
 
     // Run code formatting
+    info!("executing rustfmt for {}", repo.name_with_owner);
     format_code(&path)?;
-
-    // Collect info about formatting results
-    let repo = collect_metrics(&path, repo)?;
 
     // Commit and push changes
     git.commit_all("rustyrobot formatting")
         .map_err(HandlerError::internal)?;
+    info!("commited changes in {}", RUSTFMT_BRANCH);
+
+    // Collect info about formatting results
+    let stats = git.diff_stat("HEAD~1..HEAD")
+        .map_err(HandlerError::internal)?;
+    info!("{}: {} files changed, +{}/-{}", repo.name_with_owner, stats.files_changed, stats.lines_added, stats.lines_removed);
+    let mut new_repo_stats = repo.stats.take().unwrap_or_default();
+    new_repo_stats.format = Some(FormatStats {
+        files_changed: stats.files_changed,
+        lines_added: stats.lines_removed,
+        lines_removed: stats.lines_removed,
+        branch: RUSTFMT_BRANCH.into()
+    });
+    repo.stats = Some(new_repo_stats);
+
     git.push(RUSTFMT_BRANCH)
         .map_err(HandlerError::internal)?;
+    info!("pushed changes into {}", repo.name_with_owner);
 
     Ok(repo)
 }
@@ -184,8 +203,4 @@ fn format_code(path: &Path) -> Result<(), HandlerError> {
     } else {
         Ok(())
     }
-}
-
-fn collect_metrics(path: &Path, repo: Repository) -> Result<Repository, HandlerError> {
-    Ok(repo)
 }

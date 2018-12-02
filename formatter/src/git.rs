@@ -11,6 +11,8 @@ use failure::Error;
 use std::env;
 use std::process::{Command, ExitStatus, Stdio};
 use std::io::{Cursor, BufRead};
+use std::str::Chars;
+use log;
 
 pub struct DirHistory {
     history: Vec<PathBuf>,
@@ -54,32 +56,52 @@ pub struct Git {
 }
 
 impl Git {
+    fn exec_git_cmd(args: &[&str]) -> Result<(), Error> {
+        let mut cmd = Command::new("git");
+        cmd.args(args);
+        if !log_enabled!(log::Level::Trace) {
+            cmd.stdout(Stdio::null());
+            cmd.stderr(Stdio::null());
+        }
+        let status = cmd.status()?;
+        if !status.success() {
+            Err(GitError::CommandFailed {
+                command: format!("git {}", args.join(" ")),
+                status
+            }.into())
+        } else {
+            Ok(())
+        }
+    }
+
+    fn exec_git_cmt_get_stdout(args: &[&str]) -> Result<Vec<u8>, Error> {
+        let mut cmd = Command::new("git");
+        cmd.args(args);
+        let output = cmd.output()?;
+        if !output.status.success() {
+            Err(GitError::CommandFailed {
+                command: format!("git {}", args.join(" ")),
+                status: output.status
+            }.into())
+        } else {
+            Ok(output.stdout)
+        }
+    }
+
     pub fn clone(path: impl AsRef<Path>, repo_clone_url: &str) -> Result<Self, Error> {
         let path = path.as_ref().to_owned();
         let path_str = path.clone().to_str().map(ToOwned::to_owned).ok_or(GitError::PathIsNotUtf8)?;
 
-        let cmd = "git";
-        let args = &[
+        Self::exec_git_cmd(&[
             "clone",
             repo_clone_url,
             &path_str,
-        ];
+        ])?;
 
-        let status = Command::new(cmd)
-            .args(args)
-            .status()?;
-
-        if !status.success() {
-            Err(GitError::CommandFailed {
-                command: format!("{} {}", cmd, args.join(" ")),
-                status
-            }.into())
-        } else {
-            Ok(Git {
-                history: DirHistory::new(),
-                repo_path: path
-            })
-        }
+        Ok(Git {
+            history: DirHistory::new(),
+            repo_path: path
+        })
     }
 
     pub fn open(path: impl AsRef<Path>) -> Result<Self, Error> {
@@ -87,53 +109,26 @@ impl Git {
         let path_str = path.clone().to_str().map(ToOwned::to_owned).ok_or(GitError::PathIsNotUtf8)?;
         let mut history = DirHistory::new();
 
-        let cmd = "git";
-        let args = &[
-            "status",
-        ];
-
-        let status = {
+        {
             let dirlock = history.pushd(&path);
-            Command::new(cmd)
-                .stdout(Stdio::null())
-                .args(args)
-                .status()?
-        };
-
-        if !status.success() {
-            Err(GitError::CommandFailed {
-                command: format!("{} {}", cmd, args.join(" ")),
-                status
-            }.into())
-        } else {
-            Ok(Git {
-                history,
-                repo_path: path
-            })
+            Self::exec_git_cmd(&["status"])?;
         }
+
+        Ok(Git {
+            history,
+            repo_path: path
+        })
     }
 
     pub fn remotes(&mut self) -> Result<Vec<Remote>, Error> {
         let dirlock = self.history.pushd(&self.repo_path)?;
-        let cmd = "git";
-        let args = &[
-            "remote",
-            "-v",
-        ];
 
-        let output = Command::new(cmd)
-            .args(args)
-            .output()?;
-
-        if !output.status.success() {
-            return Err(GitError::CommandFailed {
-                command: format!("{} {}", cmd, args.join(" ")),
-                status: output.status
-            }.into())
-        }
+        let stdout = Self::exec_git_cmt_get_stdout(&[
+            "remote", "-v"
+        ])?;
 
         let mut remotes = Vec::new();
-        let reader = Cursor::new(output.stdout);
+        let reader = Cursor::new(stdout);
         for line in reader.lines() {
             let line = line?.replace("\t", " ");
             let mut tokens = line.split(" ");
@@ -158,34 +153,18 @@ impl Git {
         }
 
         let dirlock = self.history.pushd(&self.repo_path)?;
-        let cmd = "git";
-        let args = &[
+        Self::exec_git_cmd(&[
             "remote",
             "add",
             name,
             url
-        ];
-
-        let status = Command::new(cmd)
-            .stdout(Stdio::null())
-            .args(args)
-            .status()?;
-
-        if !status.success() {
-            Err(GitError::CommandFailed {
-                command: format!("{} {}", cmd, args.join(" ")),
-                status: status
-            }.into())
-        } else {
-            Ok(())
-        }
+        ])
     }
 
-    pub fn checkout<'a>(&mut self, checkout_mode: CheckoutMode<'a>) -> Result<(), Error> {
+    pub fn checkout(&mut self, checkout_mode: CheckoutMode) -> Result<(), Error> {
         let dirlock = self.history.pushd(&self.repo_path)?;
-        let cmd = "git";
-        let mut args = vec!["checkout"];
 
+        let mut args = vec!["checkout"];
         match checkout_mode {
             CheckoutMode::Commit(name) => {
                 args.push(name)
@@ -198,19 +177,7 @@ impl Git {
             }
         }
 
-        let status = Command::new(cmd)
-            .stdout(Stdio::null())
-            .args(&args)
-            .status()?;
-
-        if !status.success() {
-            Err(GitError::CommandFailed {
-                command: format!("{} {}", cmd, args.join(" ")),
-                status: status
-            }.into())
-        } else {
-            Ok(())
-        }
+        Self::exec_git_cmd(&args)
     }
 
     pub fn reset(&mut self, target: &str, hard: bool) -> Result<(), Error> {
@@ -223,42 +190,18 @@ impl Git {
         }
         args.push(target);
 
-        let status = Command::new(cmd)
-            .stdout(Stdio::null())
-            .args(&args)
-            .status()?;
-
-        if !status.success() {
-            Err(GitError::CommandFailed {
-                command: format!("{} {}", cmd, args.join(" ")),
-                status: status
-            }.into())
-        } else {
-            Ok(())
-        }
+        Self::exec_git_cmd(&args)
     }
 
     pub fn branches(&mut self) -> Result<Vec<Branch>, Error> {
         let dirlock = self.history.pushd(&self.repo_path)?;
-        let cmd = "git";
-        let args = &[
-            "branch",
-            "-a",
-        ];
 
-        let output = Command::new(cmd)
-            .args(args)
-            .output()?;
-
-        if !output.status.success() {
-            return Err(GitError::CommandFailed {
-                command: format!("{} {}", cmd, args.join(" ")),
-                status: output.status
-            }.into())
-        }
+        let stdout = Self::exec_git_cmt_get_stdout(&[
+            "branch", "-a"
+        ])?;
 
         let mut branches = Vec::new();
-        let reader = Cursor::new(output.stdout);
+        let reader = Cursor::new(stdout);
         for line in reader.lines() {
             let line = line?
                 .replace("\t", "")
@@ -290,103 +233,96 @@ impl Git {
 
     pub fn fetch(&mut self, target: &str) -> Result<(), Error> {
         let dirlock = self.history.pushd(&self.repo_path)?;
-        let cmd = "git";
-        let args = &[
+
+        Self::exec_git_cmd(&[
             "fetch",
             target
-        ];
-
-        let status = Command::new(cmd)
-            .stdout(Stdio::null())
-            .args(args)
-            .status()?;
-
-        if !status.success() {
-            Err(GitError::CommandFailed {
-                command: format!("{} {}", cmd, args.join(" ")),
-                status
-            }.into())
-        } else {
-            Ok(())
-        }
+        ])
     }
 
     pub fn merge(&mut self, target: &str) -> Result<(), Error> {
         let dirlock = self.history.pushd(&self.repo_path)?;
-        let cmd = "git";
-        let args = &[
+
+        Self::exec_git_cmd(&[
             "merge",
             target,
             "--no-edit",
-        ];
-
-        let status = Command::new(cmd)
-            .stdout(Stdio::null())
-            .args(args)
-            .status()?;
-
-        if !status.success() {
-            Err(GitError::CommandFailed {
-                command: format!("{} {}", cmd, args.join(" ")),
-                status
-            }.into())
-        } else {
-            Ok(())
-        }
+        ])
     }
 
     pub fn commit_all(&mut self, msg: &str) -> Result<(), Error> {
         let dirlock = self.history.pushd(&self.repo_path)?;
-        let cmd = "git";
-        let args = &[
+
+        Self::exec_git_cmd(&[
             "commit",
             "-a",
             "-m",
             msg,
-        ];
-
-        let status = Command::new(cmd)
-            .stdout(Stdio::null())
-            .args(args)
-            .status()?;
-
-        if !status.success() {
-            Err(GitError::CommandFailed {
-                command: format!("{} {}", cmd, args.join(" ")),
-                status
-            }.into())
-        } else {
-            Ok(())
-        }
+        ])
     }
 
     pub fn push(&mut self, target: &str) -> Result<(), Error> {
         let dirlock = self.history.pushd(&self.repo_path)?;
-        let cmd = "git";
-        let args = &[
+
+        Self::exec_git_cmd(&[
             "push",
             "--set-upstream",
             "origin",
             target,
             "--force"
-        ];
+        ])
+    }
 
-        let status = Command::new(cmd)
-            .stdout(Stdio::null())
-            .args(args)
-            .status()?;
+    pub fn diff_stat(&mut self, target: &str) -> Result<DiffStat, Error> {
+        let dirlock = self.history.pushd(&self.repo_path)?;
 
-        if !status.success() {
-            Err(GitError::CommandFailed {
-                command: format!("{} {}", cmd, args.join(" ")),
-                status
-            }.into())
-        } else {
-            Ok(())
+        let stdout = Self::exec_git_cmt_get_stdout(&[
+            "diff",
+            "--shortstat",
+            target
+        ])?;
+
+        let mut reader = Cursor::new(stdout);
+        let mut stat_line = String::new();
+        if reader.read_line(&mut stat_line)? == 0 {
+            return Err(GitError::OutputTooShort.into())
         }
+
+        Self::parse_shortstat_msg(&stat_line)
+    }
+
+    fn parse_shortstat_msg(msg: &str) -> Result<DiffStat, Error> {
+        let read_number = |chars: &mut Chars| -> Result<u64, Error> {
+            let num_str = chars
+                .skip_while(|c| !c.is_digit(10))
+                .take_while(|c| c.is_digit(10))
+                .collect::<String>();
+            if num_str.is_empty() {
+                Err(GitError::OutputTooShort.into())
+            } else {
+                Ok(num_str.parse::<u64>()?)
+            }
+        };
+
+        let mut chars = msg.chars();
+        let files_changed = read_number(&mut chars)?;
+        let lines_added = read_number(&mut chars)?;
+        let lines_removed = read_number(&mut chars)?;
+
+        Ok(DiffStat {
+            files_changed,
+            lines_added,
+            lines_removed
+        })
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiffStat {
+    pub files_changed: u64,
+    pub lines_added: u64,
+    pub lines_removed: u64,
+}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Branch {
     location: BranchLocation,
@@ -526,5 +462,19 @@ mod tests {
             Branch { name: "master".to_string(), location: BranchLocation::Local },
             Branch { name: "master".to_string(), location: BranchLocation::Remote("origin".to_string()) },
         ]);
+    }
+
+    #[test]
+    fn git_parse_shortstat() {
+        assert_eq!(Git::parse_shortstat_msg(" 1 file changed, 2 insertions(+), 1 deletion(-)").unwrap(), DiffStat {
+            files_changed: 1,
+            lines_added: 2,
+            lines_removed: 1
+        });
+        assert_eq!(Git::parse_shortstat_msg(" 100 file changed, 2123 insertions(+), 19999999 deletion(-)").unwrap(), DiffStat {
+            files_changed: 100,
+            lines_added: 2123,
+            lines_removed: 19999999
+        });
     }
 }
