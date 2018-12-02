@@ -118,6 +118,10 @@ fn main() {
                 GithubRequest::DeleteFork(repo) => {
                     delete_repo(&github_v3, &repo.name_with_owner)?;
                     callback(Event::ForkDeleted(repo))
+                },
+                GithubRequest::CreatePR {repo, branch, title, message} => {
+                    create_pr(&github_v3, &repo, &branch, &title, &message)?;
+                    callback(Event::PRCreated(repo))
                 }
             };
 
@@ -178,6 +182,8 @@ use github_v3::StatusCode;
 use rustyrobot::github::v3::{EmptyResponse, ExecutorExt};
 use rustyrobot::search::NodeType;
 use json::Value;
+use failure::err_msg;
+use std::collections::HashMap;
 
 fn fork_repo(gh: &GithubV3, parent: &Repository) -> Result<Repository, HandlerError> {
     let endpoint = format!("repos/{}/forks", &parent.name_with_owner);
@@ -202,4 +208,41 @@ fn delete_repo(gh: &GithubV3, repo_name: &str) -> Result<(), HandlerError> {
         .map_err(|error| HandlerError::Internal { error })?;
 
     Ok(())
+}
+
+fn create_pr(gh: &GithubV3, repo: &Repository, branch: &str, title: &str, message: &str) -> Result<(), HandlerError> {
+    let parent = repo.parent.as_ref().ok_or(HandlerError::Internal {
+        error: err_msg("parent is empty, can't issue a PR")
+    })?;
+
+    let owner = repo.name_with_owner.split("/").next().unwrap();
+    let head = format!("{}:{}", owner, branch);
+
+    if pr_exists(gh, &parent.name_with_owner, &head)? {
+        warn!("pull request {} -> {} exists, refusing to create", head, parent.name_with_owner);
+        return Ok(())
+    }
+
+    let endpoint = format!("repos/{}/pulls", parent.name_with_owner);
+    let mut body: HashMap<&str, &str> = HashMap::new();
+    body.insert("title", title);
+    body.insert("body", message);
+    body.insert("base", &repo.default_branch);
+    body.insert("head", &head);
+
+    let _value: EmptyResponse = gh.post(body)
+        .custom_endpoint(&endpoint)
+        .send(&[StatusCode::Created])
+        .map_err(|error| HandlerError::Internal { error })?;
+
+    Ok(())
+}
+
+fn pr_exists(gh: &GithubV3, name_with_owner: &str, head: &str) -> Result<bool, HandlerError> {
+    let endpoint = format!("repos/{}/pulls?head={}", name_with_owner, head);
+    let response: Value = gh.get()
+        .custom_endpoint(&endpoint)
+        .send(&[StatusCode::Ok])
+        .map_err(|error| HandlerError::Internal { error })?;
+    Ok(!response.as_array().map(Vec::is_empty).unwrap_or(true))
 }
