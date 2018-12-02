@@ -1,29 +1,23 @@
-extern crate rustyrobot;
-extern crate rdkafka;
 extern crate ctrlc;
 extern crate failure;
+extern crate rdkafka;
+extern crate rustyrobot;
 #[macro_use]
 extern crate log;
-extern crate fern;
 extern crate chrono;
+extern crate fern;
 extern crate uuid;
 
 use failure::Error;
 use uuid::Uuid;
 
 use rustyrobot::{
-    kafka::{
-        topic,
-        Event,
-        GithubRequest,
-        util::handler::HandlingConsumer,
-    },
+    kafka::{topic, util::handler::HandlingConsumer, Event, GithubRequest},
     shutdown::GracefulShutdown,
 };
 
-
 fn init_fern() -> Result<(), Error> {
-  fern::Dispatch::new()
+    fern::Dispatch::new()
         .format(|out, message, record| {
             out.finish(format_args!(
                 "{}[{}][{}] {}",
@@ -44,7 +38,6 @@ fn init_fern() -> Result<(), Error> {
     Ok(())
 }
 
-
 fn main() {
     init_fern().unwrap();
 
@@ -56,7 +49,8 @@ fn main() {
     ctrlc::set_handler(move || {
         info!("got SIGINT (Ctrl-C) signal, shutting down");
         sigint_shutdown.shutdown();
-    }).expect("couldn't register SIGINT handler");
+    })
+    .expect("couldn't register SIGINT handler");
 
     HandlingConsumer::builder()
         .subscribe(topic::EVENT)

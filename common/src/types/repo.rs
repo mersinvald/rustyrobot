@@ -1,9 +1,9 @@
-use search;
 use chrono::{DateTime, Utc};
-use json::Value;
 use failure::{err_msg, Error};
-use std::collections::HashMap;
+use json::Value;
 use log::error;
+use search;
+use std::collections::HashMap;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Repository {
@@ -25,13 +25,13 @@ pub struct Stats {
     pub format: Option<FormatStats>,
     pub fix: Option<FixStats>,
     pub prs: Vec<PR>,
-    pub aux: HashMap<String, Value>
+    pub aux: HashMap<String, Value>,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PR {
     pub title: String,
     pub number: i64,
-    pub status: PRStatus
+    pub status: PRStatus,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -92,8 +92,10 @@ impl search::NodeType for Repository {
                 match v3::Repository::from_value(json) {
                     Ok(repo) => Repository::from(repo),
                     Err(e) => {
-                        error!("failed to deserialize repo as Github v3 API repo: {}", e); 
-                        bail!(err_msg("failed to deserialize Repository: not v4 nor v3 format"));
+                        error!("failed to deserialize repo as Github v3 API repo: {}", e);
+                        bail!(err_msg(
+                            "failed to deserialize Repository: not v4 nor v3 format"
+                        ));
                     }
                 }
             }
@@ -104,8 +106,8 @@ impl search::NodeType for Repository {
 }
 
 pub mod v4 {
-    use failure::Error;
     use chrono::{DateTime, Utc};
+    use failure::Error;
     use json::{self, Value};
     use search::NodeType;
 
@@ -150,15 +152,15 @@ pub mod v4 {
                 parent: v4.parent,
                 has_issues_enabled: v4.has_issues_enabled,
                 is_fork: v4.is_fork,
-                stats: None
+                stats: None,
             }
         }
     }
 }
 
 pub mod v3 {
-    use failure::Error;
     use chrono::{DateTime, Utc};
+    use failure::Error;
     use json::{self, Value};
     use search::NodeType;
 
@@ -182,7 +184,6 @@ pub mod v3 {
         pub ssh_url: String,
         pub html_url: String,
     }
-
 
     impl NodeType for Repository {
         fn from_value(json: Value) -> Result<Self, Error> {
@@ -208,7 +209,7 @@ pub mod v3 {
                 }),
                 has_issues_enabled: v3.has_issues,
                 is_fork: v3.fork,
-                stats: None
+                stats: None,
             }
         }
     }

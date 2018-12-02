@@ -46,7 +46,6 @@
 //     Ok(())
 // }
 
-
 // use failure::Error;
 // use std::io::Write;
 // use std::fs::File;
@@ -145,6 +144,4 @@
 //     }
 // }
 
-fn main() {
-
-}
+fn main() {}

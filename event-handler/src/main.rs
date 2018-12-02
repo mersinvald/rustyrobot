@@ -1,27 +1,24 @@
-extern crate rustyrobot;
-extern crate rdkafka;
+extern crate chrono;
 extern crate ctrlc;
 extern crate failure;
-extern crate log;
 extern crate fern;
-extern crate chrono;
+extern crate log;
+extern crate rdkafka;
+extern crate rustyrobot;
 
-use log::{info, error};
 use failure::Error;
+use log::{error, info};
 
 use rustyrobot::{
     kafka::{
-        topic, group,
-        Event,
+        group, topic, util::handler::HandlingConsumer, util::producer::ThreadedProducer, Event,
         GithubRequest,
-        util::handler::HandlingConsumer,
-        util::producer::ThreadedProducer,
     },
     shutdown::{GracefulShutdown, GracefulShutdownHandle},
 };
 
+use chrono::{Duration, Utc};
 use std::thread;
-use chrono::{Utc, Duration};
 use std::time::Duration as StdDuration;
 
 fn init_fern() -> Result<(), Error> {
@@ -46,7 +43,6 @@ fn init_fern() -> Result<(), Error> {
     Ok(())
 }
 
-
 fn main() {
     init_fern().unwrap();
 
@@ -58,7 +54,8 @@ fn main() {
     ctrlc::set_handler(move || {
         info!("got SIGINT (Ctrl-C) signal, shutting down");
         sigint_shutdown.shutdown();
-    }).expect("couldn't register SIGINT handler");
+    })
+    .expect("couldn't register SIGINT handler");
 
     // TODO
     // start_notification_fetch_loop(shutdown.thread_handle());
@@ -72,7 +69,8 @@ fn start_notification_fetch_loop(shutdown: GracefulShutdownHandle) -> Result<(),
     thread::spawn(move || {
         while !shutdown.should_shutdown() {
             if Utc::now() >= fetch_time {
-                producer.send(GithubRequest::FetchNotifications)
+                producer
+                    .send(GithubRequest::FetchNotifications)
                     .map_err(|e| error!("failed to send FetchEvent request: {}", e))
                     .ok();
                 fetch_time = Utc::now() + fetch_period;
@@ -83,4 +81,3 @@ fn start_notification_fetch_loop(shutdown: GracefulShutdownHandle) -> Result<(),
 
     Ok(())
 }
-

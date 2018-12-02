@@ -1,7 +1,7 @@
 use rdkafka::{
-    message::{BorrowedMessage, Message},
-    consumer::{Consumer, BaseConsumer},
+    consumer::{BaseConsumer, Consumer},
     error::KafkaError,
+    message::{BorrowedMessage, Message},
     ClientConfig,
 };
 
@@ -10,14 +10,14 @@ use shutdown::GracefulShutdown;
 
 use std::ops::{Index, IndexMut};
 
-use failure::{Error, err_msg};
+use failure::{err_msg, Error};
 use json::{self, Value};
 use uuid;
 
-use std::thread;
-use std::time::Duration;
 use std::collections::HashMap;
 use std::str;
+use std::thread;
+use std::time::Duration;
 
 pub type State = HashMap<String, Value>;
 pub type StateChange = (String, Value);
@@ -31,19 +31,17 @@ pub struct StateHandler {
 }
 
 impl StateHandler {
-    pub fn new(topic: impl AsRef<str>,) -> Result<Self, Error> {
+    pub fn new(topic: impl AsRef<str>) -> Result<Self, Error> {
         let topic = topic.as_ref().to_owned();
         let shutdown = GracefulShutdown::new();
         let producer = ThreadedProducer::new(&topic, shutdown.thread_handle())?;
-        Ok(
-            StateHandler {
-                old: HashMap::new(),
-                new: HashMap::new(),
-                topic,
-                producer,
-                shutdown
-            }
-        )
+        Ok(StateHandler {
+            old: HashMap::new(),
+            new: HashMap::new(),
+            topic,
+            producer,
+            shutdown,
+        })
     }
 
     pub fn restore(&mut self) -> Result<(), Error> {
@@ -65,8 +63,8 @@ impl StateHandler {
                 Err(KafkaError::PartitionEOF(_)) => {
                     info!("restored from {}", self.topic);
                     break;
-                },
-                Err(e) => Err(e)?
+                }
+                Err(e) => Err(e)?,
             };
             let (key, value) = message.into_state_change()?;
             debug!("restoring state from {}: {} => {}", self.topic, key, value);
@@ -102,15 +100,17 @@ impl StateHandler {
     }
 
     pub fn get<S, V>(&self, key: S) -> V
-        where S: AsRef<str>,
-              V: FromJsonValue
+    where
+        S: AsRef<str>,
+        V: FromJsonValue,
     {
         V::from_json_value(self[key].clone())
     }
 
     pub fn get_or_default<S, V>(&self, key: S) -> V
-        where S: AsRef<str>,
-              V: FromJsonValue + Default
+    where
+        S: AsRef<str>,
+        V: FromJsonValue + Default,
     {
         if let Some(value) = self.new.get(key.as_ref()) {
             V::from_json_value(value.clone())
@@ -120,27 +120,32 @@ impl StateHandler {
     }
 
     pub fn set<S, V>(&mut self, key: S, value: V)
-        where S: AsRef<str>,
-              V: Into<Value>
+    where
+        S: AsRef<str>,
+        V: Into<Value>,
     {
         let value = value.into();
         self[key] = value;
     }
 
     pub fn set_and_sync<S, V>(&mut self, key: S, value: V) -> Result<(), Error>
-        where S: AsRef<str>,
-              V: Into<Value>
+    where
+        S: AsRef<str>,
+        V: Into<Value>,
     {
         self.set(key, value);
         self.sync()
     }
 
     pub fn increment<S>(&mut self, key: S)
-        where S: AsRef<str>
+    where
+        S: AsRef<str>,
     {
         let key = key.as_ref().to_string();
 
-        let old = self.new.get(&key)
+        let old = self
+            .new
+            .get(&key)
             .cloned()
             .map(i64::from_json_value)
             .unwrap_or(0);
@@ -161,10 +166,7 @@ impl StateHandler {
             };
 
             if changed {
-                let change = (
-                    new_key.to_owned(),
-                    new_value.to_owned(),
-                );
+                let change = (new_key.to_owned(), new_value.to_owned());
 
                 changes.push(change);
             }
@@ -176,14 +178,14 @@ impl StateHandler {
 
 impl Drop for StateHandler {
     fn drop(&mut self) {
-        self.sync()
-            .expect("Failed to synchronize changes");
+        self.sync().expect("Failed to synchronize changes");
         self.shutdown.shutdown();
     }
 }
 
 impl<S> Index<S> for StateHandler
-    where S: AsRef<str>
+where
+    S: AsRef<str>,
 {
     type Output = Value;
     fn index(&self, idx: S) -> &Self::Output {
@@ -192,13 +194,14 @@ impl<S> Index<S> for StateHandler
 }
 
 impl<S> IndexMut<S> for StateHandler
-    where S: AsRef<str>{
+where
+    S: AsRef<str>,
+{
     fn index_mut(&mut self, idx: S) -> &mut Self::Output {
         let key = idx.as_ref().to_string();
         self.new.entry(key).or_insert(Value::Null)
     }
 }
-
 
 trait IntoStateChange {
     fn into_state_change(&self) -> Result<StateChange, Error>;
@@ -210,13 +213,13 @@ trait FromStateChange: Sized {
 
 impl<'a> IntoStateChange for BorrowedMessage<'a> {
     fn into_state_change(&self) -> Result<StateChange, Error> {
-        let key = self.key().ok_or_else(||
-            err_msg("Missing key on state change")
-        )?;
+        let key = self
+            .key()
+            .ok_or_else(|| err_msg("Missing key on state change"))?;
 
-        let value = self.payload().ok_or_else(||
-            err_msg("Empty state change")
-        )?;
+        let value = self
+            .payload()
+            .ok_or_else(|| err_msg("Empty state change"))?;
 
         let key = str::from_utf8(key)?;
         let value: Value = json::from_slice(value)?;
@@ -263,7 +266,9 @@ impl FromJsonValue for f64 {
 impl<T: FromJsonValue> FromJsonValue for Vec<T> {
     fn from_json_value(value: Value) -> Self {
         assert!(value.is_array());
-        value.as_array().unwrap()
+        value
+            .as_array()
+            .unwrap()
             .iter()
             .map(|v| T::from_json_value(v.clone()))
             .collect()
@@ -273,8 +278,8 @@ impl<T: FromJsonValue> FromJsonValue for Vec<T> {
 #[cfg(test)]
 mod tests {
     use super::StateHandler;
-    use json::Value;
     use env_logger;
+    use json::Value;
     use uuid::Uuid;
 
     #[test]
@@ -311,19 +316,28 @@ mod tests {
     fn delta() {
         let mut state = StateHandler::new("rustyrobot.test.state.save_and_restore").unwrap();
         state.set("delta_key_1", 1);
-        assert_eq!(state.delta(), vec![
-            (String::from("delta_key_1"), Value::from(1))
-        ]);
+        assert_eq!(
+            state.delta(),
+            vec![(String::from("delta_key_1"), Value::from(1))]
+        );
 
         state.set("delta_key_2", 2);
         assert_eq!(state.delta().len(), 2);
-        assert!(state.delta().contains(&(String::from("delta_key_1"), Value::from(1))));
-        assert!(state.delta().contains(&(String::from("delta_key_2"), Value::from(2))));
+        assert!(state
+            .delta()
+            .contains(&(String::from("delta_key_1"), Value::from(1))));
+        assert!(state
+            .delta()
+            .contains(&(String::from("delta_key_2"), Value::from(2))));
 
         state.set("delta_key_2", 1);
         assert_eq!(state.delta().len(), 2);
-        assert!(state.delta().contains(&(String::from("delta_key_1"), Value::from(1))));
-        assert!(state.delta().contains(&(String::from("delta_key_2"), Value::from(1))));
+        assert!(state
+            .delta()
+            .contains(&(String::from("delta_key_1"), Value::from(1))));
+        assert!(state
+            .delta()
+            .contains(&(String::from("delta_key_2"), Value::from(1))));
 
         state.sync().unwrap();
         assert_eq!(state.delta(), vec![]);
@@ -334,8 +348,9 @@ mod tests {
         state.set("delta_key_2", 1);
         assert_eq!(state.delta(), vec![]);
         state.set("delta_key_2", 2);
-        assert_eq!(state.delta(), vec![
-            (String::from("delta_key_2"), Value::from(2))
-        ]);
+        assert_eq!(
+            state.delta(),
+            vec![(String::from("delta_key_2"), Value::from(2))]
+        );
     }
 }
