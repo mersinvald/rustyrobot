@@ -1,10 +1,19 @@
 #!/bin/bash
 
+KAFKA_TOPICS_CMD=""
+echo $OSTYPE
+
+if [[ "$OSTYPE" == "linux-gnu" ]]; then
+        KAFKA_TOPICS_CMD="kafka-topics.sh"
+elif [[ "$OSTYPE" == "darwin"* ]]; then
+        KAFKA_TOPICS_CMD="kafka-topics"
+fi
+
 ZOOKEEPER="localhost:2181"
 
 function create_topic() {
     echo "Creating topic $1 with $2 partitions of replication factor 1"
-	kafka-topics.sh --create \
+	$KAFKA_TOPICS_CMD --create \
 	    --zookeeper $ZOOKEEPER \
 	    --topic $1 \
 	    --partitions $2 \
@@ -13,7 +22,7 @@ function create_topic() {
 
 function enable_compaction() {
    echo "Enabling log compaction on topic $1"
-   kafka-topics.sh \
+   $KAFKA_TOPICS_CMD \
         --zookeeper $ZOOKEEPER \
         --alter --topic $1 \
         --config cleanup.policy=compact
