@@ -9,6 +9,7 @@ pub enum Event {
     RepositoryForked(Repository),
     ForkDeleted(Repository),
     RepositoryFormatted(Repository),
+    PRCreated(Repository),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -16,6 +17,12 @@ pub enum GithubRequest {
     Fetch(IncompleteQuery),
     Fork(Repository),
     DeleteFork(Repository),
+    CreatePR {
+        repo: Repository,
+        branch: String,
+        title: String,
+        message: String,
+    }
 }
 
 pub mod topic {
@@ -30,4 +37,5 @@ pub mod group {
     pub const FETCHER: &str = "rustyrobot.fetcher";
     pub const FORKER: &str = "rustyrobot.forker";
     pub const FORMATTER: &str = "rustyrobot.formatter";
+    pub const PR_ISSUER: &str = "rustyrobot.prissuer";
 }
