@@ -5,14 +5,13 @@
 // I tried. It's insanely inhuman and designed for some Ubersoldaten.
 // Regards to Linus Torvalds. His wicked CLI tool is actually more usable then it's C API.
 
-
-use std::path::{PathBuf, Path};
 use failure::Error;
-use std::env;
-use std::process::{Command, ExitStatus, Stdio};
-use std::io::{Cursor, BufRead};
-use std::str::Chars;
 use log;
+use std::env;
+use std::io::{BufRead, Cursor};
+use std::path::{Path, PathBuf};
+use std::process::{Command, ExitStatus, Stdio};
+use std::str::Chars;
 
 pub struct DirHistory {
     history: Vec<PathBuf>,
@@ -20,9 +19,7 @@ pub struct DirHistory {
 
 impl DirHistory {
     pub fn new() -> Self {
-        DirHistory {
-            history: vec![],
-        }
+        DirHistory { history: vec![] }
     }
 
     pub fn pushd(&mut self, path: impl AsRef<Path>) -> Result<DirHistoryLock, Error> {
@@ -33,8 +30,7 @@ impl DirHistory {
     }
 
     pub fn popd(&mut self) -> Result<(), Error> {
-        let path = self.history.pop()
-            .expect("directory buffer underflow");
+        let path = self.history.pop().expect("directory buffer underflow");
         env::set_current_dir(&path)?;
         Ok(())
     }
@@ -67,8 +63,9 @@ impl Git {
         if !status.success() {
             Err(GitError::CommandFailed {
                 command: format!("git {}", args.join(" ")),
-                status
-            }.into())
+                status,
+            }
+            .into())
         } else {
             Ok(())
         }
@@ -81,8 +78,9 @@ impl Git {
         if !output.status.success() {
             Err(GitError::CommandFailed {
                 command: format!("git {}", args.join(" ")),
-                status: output.status
-            }.into())
+                status: output.status,
+            }
+            .into())
         } else {
             Ok(output.stdout)
         }
@@ -90,23 +88,27 @@ impl Git {
 
     pub fn clone(path: impl AsRef<Path>, repo_clone_url: &str) -> Result<Self, Error> {
         let path = path.as_ref().to_owned();
-        let path_str = path.clone().to_str().map(ToOwned::to_owned).ok_or(GitError::PathIsNotUtf8)?;
+        let path_str = path
+            .clone()
+            .to_str()
+            .map(ToOwned::to_owned)
+            .ok_or(GitError::PathIsNotUtf8)?;
 
-        Self::exec_git_cmd(&[
-            "clone",
-            repo_clone_url,
-            &path_str,
-        ])?;
+        Self::exec_git_cmd(&["clone", repo_clone_url, &path_str])?;
 
         Ok(Git {
             history: DirHistory::new(),
-            repo_path: path
+            repo_path: path,
         })
     }
 
     pub fn open(path: impl AsRef<Path>) -> Result<Self, Error> {
         let path = path.as_ref().to_owned();
-        let path_str = path.clone().to_str().map(ToOwned::to_owned).ok_or(GitError::PathIsNotUtf8)?;
+        let path_str = path
+            .clone()
+            .to_str()
+            .map(ToOwned::to_owned)
+            .ok_or(GitError::PathIsNotUtf8)?;
         let mut history = DirHistory::new();
 
         {
@@ -116,16 +118,14 @@ impl Git {
 
         Ok(Git {
             history,
-            repo_path: path
+            repo_path: path,
         })
     }
 
     pub fn remotes(&mut self) -> Result<Vec<Remote>, Error> {
         let dirlock = self.history.pushd(&self.repo_path)?;
 
-        let stdout = Self::exec_git_cmt_get_stdout(&[
-            "remote", "-v"
-        ])?;
+        let stdout = Self::exec_git_cmt_get_stdout(&["remote", "-v"])?;
 
         let mut remotes = Vec::new();
         let reader = Cursor::new(stdout);
@@ -153,12 +153,7 @@ impl Git {
         }
 
         let dirlock = self.history.pushd(&self.repo_path)?;
-        Self::exec_git_cmd(&[
-            "remote",
-            "add",
-            name,
-            url
-        ])
+        Self::exec_git_cmd(&["remote", "add", name, url])
     }
 
     pub fn checkout(&mut self, checkout_mode: CheckoutMode) -> Result<(), Error> {
@@ -166,9 +161,7 @@ impl Git {
 
         let mut args = vec!["checkout"];
         match checkout_mode {
-            CheckoutMode::Commit(name) => {
-                args.push(name)
-            },
+            CheckoutMode::Commit(name) => args.push(name),
             CheckoutMode::Branch { name, create } => {
                 if create {
                     args.push("-b");
@@ -196,21 +189,16 @@ impl Git {
     pub fn branches(&mut self) -> Result<Vec<Branch>, Error> {
         let dirlock = self.history.pushd(&self.repo_path)?;
 
-        let stdout = Self::exec_git_cmt_get_stdout(&[
-            "branch", "-a"
-        ])?;
+        let stdout = Self::exec_git_cmt_get_stdout(&["branch", "-a"])?;
 
         let mut branches = Vec::new();
         let reader = Cursor::new(stdout);
         for line in reader.lines() {
-            let line = line?
-                .replace("\t", "")
-                .replace("*", "")
-                .replace(" ", "");
+            let line = line?.replace("\t", "").replace("*", "").replace(" ", "");
             if !line.contains("/") {
                 branches.push(Branch {
                     location: BranchLocation::Local,
-                    name: line
+                    name: line,
                 })
             } else {
                 let mut tokens = line.split("/");
@@ -219,7 +207,7 @@ impl Git {
                 let name = tokens.next().ok_or(GitError::OutputTooShort)?;
                 branches.push(Branch {
                     location: BranchLocation::Remote(remote.to_string()),
-                    name: name.to_string()
+                    name: name.to_string(),
                 })
             }
         }
@@ -234,58 +222,36 @@ impl Git {
     pub fn fetch(&mut self, target: &str) -> Result<(), Error> {
         let dirlock = self.history.pushd(&self.repo_path)?;
 
-        Self::exec_git_cmd(&[
-            "fetch",
-            target
-        ])
+        Self::exec_git_cmd(&["fetch", target])
     }
 
     pub fn merge(&mut self, target: &str) -> Result<(), Error> {
         let dirlock = self.history.pushd(&self.repo_path)?;
 
-        Self::exec_git_cmd(&[
-            "merge",
-            target,
-            "--no-edit",
-        ])
+        Self::exec_git_cmd(&["merge", target, "--no-edit"])
     }
 
     pub fn commit_all(&mut self, msg: &str) -> Result<(), Error> {
         let dirlock = self.history.pushd(&self.repo_path)?;
 
-        Self::exec_git_cmd(&[
-            "commit",
-            "-a",
-            "-m",
-            msg,
-        ])
+        Self::exec_git_cmd(&["commit", "-a", "-m", msg])
     }
 
     pub fn push(&mut self, target: &str) -> Result<(), Error> {
         let dirlock = self.history.pushd(&self.repo_path)?;
 
-        Self::exec_git_cmd(&[
-            "push",
-            "--set-upstream",
-            "origin",
-            target,
-            "--force"
-        ])
+        Self::exec_git_cmd(&["push", "--set-upstream", "origin", target, "--force"])
     }
 
     pub fn diff_stat(&mut self, target: &str) -> Result<DiffStat, Error> {
         let dirlock = self.history.pushd(&self.repo_path)?;
 
-        let stdout = Self::exec_git_cmt_get_stdout(&[
-            "diff",
-            "--shortstat",
-            target
-        ])?;
+        let stdout = Self::exec_git_cmt_get_stdout(&["diff", "--shortstat", target])?;
 
         let mut reader = Cursor::new(stdout);
         let mut stat_line = String::new();
         if reader.read_line(&mut stat_line)? == 0 {
-            return Err(GitError::OutputTooShort.into())
+            return Err(GitError::OutputTooShort.into());
         }
 
         Self::parse_shortstat_msg(&stat_line)
@@ -312,7 +278,7 @@ impl Git {
         Ok(DiffStat {
             files_changed,
             lines_added,
-            lines_removed
+            lines_removed,
         })
     }
 }
@@ -338,10 +304,7 @@ pub enum BranchLocation {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CheckoutMode<'a> {
     Commit(&'a str),
-    Branch {
-        name: &'a str,
-        create: bool,
-    }
+    Branch { name: &'a str, create: bool },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -353,10 +316,7 @@ pub struct Remote {
 #[derive(Clone, Debug, Fail)]
 enum GitError {
     #[fail(display = "executing {:?} failed with status {}", command, status)]
-    CommandFailed {
-        command: String,
-        status: ExitStatus,
-    },
+    CommandFailed { command: String, status: ExitStatus },
     #[fail(display = "path is not a utf8 string")]
     PathIsNotUtf8,
     #[fail(display = "output was too shirt to parse it")]
@@ -413,10 +373,19 @@ mod tests {
     #[test]
     fn git_remotes() {
         let mut git = Git::open("./").unwrap();
-        assert_eq!(git.remotes().unwrap(), vec![
-            Remote { name: "origin".to_string(), url: "git@github.com:mersinvald/github-rustfmt-bot.git".to_string() },
-            Remote { name: "origin".to_string(), url: "git@github.com:mersinvald/github-rustfmt-bot.git".to_string() },
-        ]);
+        assert_eq!(
+            git.remotes().unwrap(),
+            vec![
+                Remote {
+                    name: "origin".to_string(),
+                    url: "git@github.com:mersinvald/github-rustfmt-bot.git".to_string()
+                },
+                Remote {
+                    name: "origin".to_string(),
+                    url: "git@github.com:mersinvald/github-rustfmt-bot.git".to_string()
+                },
+            ]
+        );
     }
 
     #[test]
@@ -433,7 +402,8 @@ mod tests {
             remove_dir_all(&path).unwrap();
         }
 
-        let mut git = Git::clone(&path, "git@github.com:mersinvald/github-rustfmt-bot.git").unwrap();
+        let mut git =
+            Git::clone(&path, "git@github.com:mersinvald/github-rustfmt-bot.git").unwrap();
         assert!(path.exists());
         git.add_remote("new_remote", "https://localhost/").unwrap();
         assert_eq!(git.has_remote("new_remote").unwrap(), true);
@@ -448,9 +418,14 @@ mod tests {
             remove_dir_all(&path).unwrap();
         }
 
-        let mut git = Git::clone(&path, "git@github.com:mersinvald/github-rustfmt-bot.git").unwrap();
+        let mut git =
+            Git::clone(&path, "git@github.com:mersinvald/github-rustfmt-bot.git").unwrap();
         assert!(path.exists());
-        git.checkout(CheckoutMode::Branch { name: "new", create: true }).unwrap();
+        git.checkout(CheckoutMode::Branch {
+            name: "new",
+            create: true,
+        })
+        .unwrap();
 
         remove_dir_all(&path).unwrap();
     }
@@ -458,23 +433,39 @@ mod tests {
     #[test]
     fn git_branches() {
         let mut git = Git::open("./").unwrap();
-        assert_eq!(git.branches().unwrap(), vec![
-            Branch { name: "master".to_string(), location: BranchLocation::Local },
-            Branch { name: "master".to_string(), location: BranchLocation::Remote("origin".to_string()) },
-        ]);
+        assert_eq!(
+            git.branches().unwrap(),
+            vec![
+                Branch {
+                    name: "master".to_string(),
+                    location: BranchLocation::Local
+                },
+                Branch {
+                    name: "master".to_string(),
+                    location: BranchLocation::Remote("origin".to_string())
+                },
+            ]
+        );
     }
 
     #[test]
     fn git_parse_shortstat() {
-        assert_eq!(Git::parse_shortstat_msg(" 1 file changed, 2 insertions(+), 1 deletion(-)").unwrap(), DiffStat {
-            files_changed: 1,
-            lines_added: 2,
-            lines_removed: 1
-        });
-        assert_eq!(Git::parse_shortstat_msg(" 100 file changed, 2123 insertions(+), 19999999 deletion(-)").unwrap(), DiffStat {
-            files_changed: 100,
-            lines_added: 2123,
-            lines_removed: 19999999
-        });
+        assert_eq!(
+            Git::parse_shortstat_msg(" 1 file changed, 2 insertions(+), 1 deletion(-)").unwrap(),
+            DiffStat {
+                files_changed: 1,
+                lines_added: 2,
+                lines_removed: 1
+            }
+        );
+        assert_eq!(
+            Git::parse_shortstat_msg(" 100 file changed, 2123 insertions(+), 19999999 deletion(-)")
+                .unwrap(),
+            DiffStat {
+                files_changed: 100,
+                lines_added: 2123,
+                lines_removed: 19999999
+            }
+        );
     }
 }

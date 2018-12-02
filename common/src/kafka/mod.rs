@@ -1,7 +1,7 @@
 pub mod util;
 
-use types::{Repository, Notification};
 use search::query::IncompleteQuery;
+use types::{Notification, Repository};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Event {

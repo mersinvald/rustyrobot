@@ -15,7 +15,7 @@ pub trait AsQuerySegment {
 impl AsQuerySegment for Lang {
     fn as_query_segment(&self) -> &'static str {
         match self {
-            Lang::Rust => "language:Rust"
+            Lang::Rust => "language:Rust",
         }
     }
 }
@@ -23,7 +23,7 @@ impl AsQuerySegment for Lang {
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub enum SearchFor {
     Repository,
-    Undefined
+    Undefined,
 }
 
 impl SearchFor {
@@ -51,7 +51,11 @@ impl Query {
 
 impl Query {
     pub fn to_arg_list(&self) -> String {
-        let mut list = format!("type: {}, first: {}", self.search_for.type_str(), self.count);
+        let mut list = format!(
+            "type: {}, first: {}",
+            self.search_for.type_str(),
+            self.count
+        );
 
         if let Some(ref query) = self.query {
             list.push_str(ARG_LIST_DELIMITER);
@@ -74,9 +78,7 @@ impl Query {
 #[derive(Fail, Debug)]
 enum QueryBuilderError {
     #[fail(display = "count must be in 1..100, got {}", count)]
-    InvalidCount {
-        count: u8,
-    },
+    InvalidCount { count: u8 },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -86,7 +88,6 @@ pub struct IncompleteQuery {
     count: Option<u8>,
     after: Option<String>,
 }
-
 
 impl IncompleteQuery {
     pub fn raw_query(mut self, raw_query: impl Into<String>) -> Self {
@@ -114,9 +115,7 @@ impl IncompleteQuery {
     }
 
     pub fn owner(self, owner: &str) -> Self {
-        self.raw_query(
-            format!("user:{}", owner)
-        )
+        self.raw_query(format!("user:{}", owner))
     }
 
     pub fn count(mut self, count: u8) -> Self {
@@ -139,7 +138,7 @@ impl IncompleteQuery {
             count,
             search_for: self.search_for,
             query: self.query,
-            after: self.after
+            after: self.after,
         };
 
         Ok(query)

@@ -1,6 +1,6 @@
-extern crate rustyrobot;
-extern crate rdkafka;
 extern crate ctrlc;
+extern crate rdkafka;
+extern crate rustyrobot;
 #[macro_use]
 extern crate failure;
 #[macro_use]
@@ -14,37 +14,29 @@ extern crate serde_derive;
 extern crate serde;
 extern crate serde_json as json;
 
+use failure::{err_msg, Error};
 use std::sync::{Arc, Mutex};
-use failure::{Error, err_msg};
 
 use rustyrobot::{
-    kafka::{
-        topic, group,
-        Event,
-        GithubRequest,
-        util::{
-            handler::{HandlingConsumer, HandlerError},
-            state::StateHandler,
-        }
-    },
-    github::v4::Github as GithubV4,
-    github::v3::Github as GithubV3,
     github::utils::load_token,
-    types::{Repository},
-    search::{
-        search,
-        query::SearchFor,
-        query::IncompleteQuery,
+    github::v3::Github as GithubV3,
+    github::v4::Github as GithubV4,
+    kafka::{
+        group, topic,
+        util::{
+            handler::{HandlerError, HandlingConsumer},
+            state::StateHandler,
+        },
+        Event, GithubRequest,
     },
+    search::{query::IncompleteQuery, query::SearchFor, search},
     shutdown::{GracefulShutdown, GracefulShutdownHandle},
+    types::Repository,
 };
 
 use rdkafka::{
+    producer::{DefaultProducerContext, ThreadedProducer},
     ClientConfig,
-    producer::{
-        ThreadedProducer,
-        DefaultProducerContext
-    }
 };
 
 fn init_fern() -> Result<(), Error> {
@@ -80,7 +72,8 @@ fn main() {
     ctrlc::set_handler(move || {
         info!("received Ctrl-C, shutting down");
         shutdown.shutdown()
-    }).unwrap();
+    })
+    .unwrap();
 
     HandlingConsumer::builder()
         .subscribe(topic::EVENT)
@@ -91,11 +84,11 @@ fn main() {
                 Event::RepositoryFormatted(repo) => {
                     let branch = {
                         let stats = repo.stats.as_ref().ok_or(HandlerError::Internal {
-                            error: err_msg("stats are empty after the formatting stage")
+                            error: err_msg("stats are empty after the formatting stage"),
                         })?;
 
                         let fmt_stats = stats.format.as_ref().ok_or(HandlerError::Internal {
-                            error: err_msg("formatting stats are empty after the formatting stage")
+                            error: err_msg("formatting stats are empty after the formatting stage"),
                         })?;
 
                         fmt_stats.branch.clone()
@@ -107,8 +100,8 @@ fn main() {
                         title: "Formatting Suggestions from RustyRobot".to_string(),
                         message: PR_MSG.to_string(),
                     })
-                },
-                _ => ()
+                }
+                _ => (),
             }
             Ok(())
         })

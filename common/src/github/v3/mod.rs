@@ -1,19 +1,15 @@
 pub use gh3::client::Github;
+use gh3::headers::{rate_limit, rate_limit_remaining, rate_limit_reset};
 use gh3::StatusCode;
-use gh3::headers::{
-    rate_limit,
-    rate_limit_remaining,
-    rate_limit_reset
-};
 
 use std::sync::{Arc, RwLock};
 
-use serde::de::DeserializeOwned;
 use failure::Error;
-use json::{self, Value};
 use gh3::client::Executor;
-use github::RequestError;
 use github::utils;
+use github::RequestError;
+use json::{self, Value};
+use serde::de::DeserializeOwned;
 
 use error_chain_failure_interop::ResultExt;
 
@@ -26,10 +22,12 @@ pub trait ExecutorExt<T>: Executor + Sized {
 }
 
 impl<T, E: Executor + Sized> ExecutorExt<T> for E
-    where T: DeserializeOwned 
+where
+    T: DeserializeOwned,
 {
     fn send(self, good_statuses: &[StatusCode]) -> Result<T, Error>
-        where T: DeserializeOwned
+    where
+        T: DeserializeOwned,
     {
         let now = Utc::now().timestamp();
         let limits = *RATE_LIMIT.read().unwrap();
@@ -72,7 +70,9 @@ impl<T, E: Executor + Sized> ExecutorExt<T> for E
         }
 
         if !good_statuses.contains(&status) {
-            raise!(RequestError::ResponseStatusNotOk { status: status.as_u16() })
+            raise!(RequestError::ResponseStatusNotOk {
+                status: status.as_u16()
+            })
         }
 
         Ok(json::from_value(json)?)
@@ -115,7 +115,9 @@ impl<E: Executor + Sized> ExecutorExt<EmptyResponse> for E {
         }
 
         if !good_statuses.contains(&status) {
-            raise!(RequestError::ResponseStatusNotOk { status: status.as_u16() })
+            raise!(RequestError::ResponseStatusNotOk {
+                status: status.as_u16()
+            })
         }
 
         Ok(EmptyResponse)
