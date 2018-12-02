@@ -26,8 +26,8 @@ use rustyrobot::{
     },
     github::v4::Github as GithubV4,
     github::v3::Github as GithubV3,
-    github::utils::load_token,
-    types::{Repository},
+    github::utils::{load_token, load_username},
+    types::{Repository, Notification, PR, PRStatus},
     search::{
         search,
         query::SearchFor,
@@ -47,8 +47,8 @@ fn init_fern() -> Result<(), Error> {
                 message
             ))
         })
-        .level_for("github", log::LevelFilter::Trace)
-        .level_for("rustyrobot", log::LevelFilter::Trace)
+        .level_for("github", log::LevelFilter::Debug)
+        .level_for("rustyrobot", log::LevelFilter::Debug)
         .level(log::LevelFilter::Warn)
         .chain(std::io::stdout())
         .apply()?;
@@ -76,6 +76,8 @@ fn main() {
 
     let token = load_token()
         .expect("failed to load token (set GITHUB_TOKEN env)");
+    let username = load_username()
+        .expect("failed to load username (set GITHUB_USERNAME env)");
 
     let github_v3 = GithubV3::new(&token).expect("failed to create GitHub V3 API instance");
     let github_v4 = GithubV4::new(&token).expect("failed to create GitHub V4 API instance");
@@ -120,8 +122,21 @@ fn main() {
                     callback(Event::ForkDeleted(repo))
                 },
                 GithubRequest::CreatePR {repo, branch, title, message} => {
-                    create_pr(&github_v3, &repo, &branch, &title, &message)?;
+                    let repo = create_pr(&github_v3, repo, &branch, &title, &message)?;
                     callback(Event::PRCreated(repo))
+                },
+                GithubRequest::FetchNotifications => {
+                    // TODO
+                    let events = fetch_notifications(&github_v3, &username)?;
+                    for event in events {
+                        callback(Event::Notification(event));
+                    }
+                },
+                GithubRequest::CheckPRStatus(repo) => {
+                    let repo_none_if_unchanged = fetch_pr_status(&github_v3, repo)?;
+                    if let Some(repo) = repo_none_if_unchanged {
+                        callback(Event::PRStatusChange(repo))
+                    }
                 }
             };
 
@@ -210,32 +225,56 @@ fn delete_repo(gh: &GithubV3, repo_name: &str) -> Result<(), HandlerError> {
     Ok(())
 }
 
-fn create_pr(gh: &GithubV3, repo: &Repository, branch: &str, title: &str, message: &str) -> Result<(), HandlerError> {
-    let parent = repo.parent.as_ref().ok_or(HandlerError::Internal {
+fn create_pr(gh: &GithubV3, mut repo: Repository, branch: &str, title: &str, message: &str) -> Result<Repository, HandlerError> {
+    let parent = repo.parent.clone().ok_or(HandlerError::Internal {
         error: err_msg("parent is empty, can't issue a PR")
     })?;
 
-    let owner = repo.name_with_owner.split("/").next().unwrap();
+    let owner = repo.name_with_owner.split("/").next().unwrap().to_string();
     let head = format!("{}:{}", owner, branch);
 
     if pr_exists(gh, &parent.name_with_owner, &head)? {
         warn!("pull request {} -> {} exists, refusing to create", head, parent.name_with_owner);
-        return Ok(())
+        return Ok(repo)
     }
 
-    let endpoint = format!("repos/{}/pulls", parent.name_with_owner);
-    let mut body: HashMap<&str, &str> = HashMap::new();
-    body.insert("title", title);
-    body.insert("body", message);
-    body.insert("base", &repo.default_branch);
-    body.insert("head", &head);
+    let response: Value = {
+        let endpoint = format!("repos/{}/pulls", parent.name_with_owner);
+        let mut body: HashMap<&str, &str> = HashMap::new();
+        body.insert("title", title);
+        body.insert("body", message);
+        body.insert("base", &repo.default_branch);
+        body.insert("head", &head);
 
-    let _value: EmptyResponse = gh.post(body)
-        .custom_endpoint(&endpoint)
-        .send(&[StatusCode::Created])
-        .map_err(|error| HandlerError::Internal { error })?;
+        gh.post(body)
+            .custom_endpoint(&endpoint)
+            .send(&[StatusCode::Created])
+            .map_err(|error| HandlerError::Internal { error })?
+    };
 
-    Ok(())
+    let pr_number = response.as_object()
+        .and_then(|obj| obj.get("number"))
+        .and_then(|number| number.as_i64())
+        .ok_or_else(|| HandlerError::Internal {
+            error: err_msg("number is missing for Pull Request")
+        })?;
+
+    let mut stats = repo.stats.take().unwrap_or_default();
+    let pr = PR {
+        title: title.to_owned(),
+        number: pr_number,
+        status: PRStatus::Open,
+    };
+
+    // Remove previous entry if exists
+    if let Some(pos) = stats.prs.iter().position(|pr| pr.number == pr_number) {
+        stats.prs.remove(pos);
+    }
+
+    stats.prs.push(pr);
+    repo.stats = Some(stats);
+
+    Ok(repo)
 }
 
 fn pr_exists(gh: &GithubV3, name_with_owner: &str, head: &str) -> Result<bool, HandlerError> {
@@ -245,4 +284,56 @@ fn pr_exists(gh: &GithubV3, name_with_owner: &str, head: &str) -> Result<bool, H
         .send(&[StatusCode::Ok])
         .map_err(|error| HandlerError::Internal { error })?;
     Ok(!response.as_array().map(Vec::is_empty).unwrap_or(true))
+}
+
+fn fetch_notifications(gh: &GithubV3, username: &str) -> Result<Vec<Notification>, HandlerError> {
+    let endpoint = "notifications";
+    let response: Value = gh.get()
+        .custom_endpoint(&endpoint)
+        .send(&[StatusCode::Ok])
+        .map_err(|error| HandlerError::Internal { error })?;
+    println!("{:#?}", response);
+    Ok(vec![])
+}
+
+fn fetch_pr_status(gh: &GithubV3, mut repo: Repository) -> Result<Option<Repository>, HandlerError> {
+    let mut stats = repo.stats.take().unwrap_or_default();
+    let old_prs = stats.prs.clone();
+
+    let mut new_prs = Vec::with_capacity(old_prs.len());
+    for pr in stats.prs {
+        let endpoint = format!("repos/{}/pulls/{}", repo.name_with_owner, pr.number);
+        let response: Value = gh.get()
+            .custom_endpoint(&endpoint)
+            .send(&[StatusCode::Ok])
+            .map_err(|error| HandlerError::Internal { error })?;
+
+        let pr_obj = response.as_object()
+            .ok_or_else(|| HandlerError::internal(err_msg("GET PR returned <non object>")))?;
+
+        let pr_title = pr_obj.get("title").and_then(|t| t.as_str())
+            .ok_or_else(|| HandlerError::internal(err_msg("no title associated with PR")))?;
+
+        let pr_number = pr_obj.get("number").and_then(|t| t.as_i64())
+            .ok_or_else(|| HandlerError::internal(err_msg("no number associated with PR")))?;
+
+        let pr_status = pr_obj.get("state")
+            .and_then(|t| t.as_str())
+            .and_then(|t| PRStatus::from_str(t))
+            .ok_or_else(|| HandlerError::internal(err_msg("no state associated with PR")))?;
+
+        new_prs.push(PR {
+            title: pr_title.to_string(),
+            number: pr_number,
+            status: pr_status
+        });
+    }
+
+    if new_prs != old_prs {
+        stats.prs = new_prs;
+        repo.stats = Some(stats);
+        Ok(Some(repo))
+    } else {
+        Ok(None)
+    }
 }

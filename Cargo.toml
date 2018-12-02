@@ -8,5 +8,6 @@ members = [
     "fixer",
     "pr-issuer",
     "github",
+    "event-handler",
     "util/delete-forks"
 ]

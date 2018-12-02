@@ -15,6 +15,7 @@ extern crate serde;
 extern crate serde_json as json;
 extern crate git2;
 extern crate tempdir;
+extern crate dotenv;
 
 mod git;
 
@@ -63,7 +64,7 @@ fn init_fern() -> Result<(), Error> {
             ))
         })
         .level_for("rustyrobot", log::LevelFilter::Debug)
-        .level_for("formatter", log::LevelFilter::Debug)
+        .level_for("formatter", log::LevelFilter::Trace)
         .level(log::LevelFilter::Warn)
         .chain(std::io::stdout())
         .apply()?;
@@ -75,6 +76,7 @@ fn init_fern() -> Result<(), Error> {
 
 fn main() {
     init_fern().expect("failed to setup logger");
+    dotenv::dotenv().ok();
 
     let shutdown = GracefulShutdown::new();
     let shutdown_handle = shutdown.thread_handle();
@@ -156,7 +158,12 @@ fn rustfmt_repo(mut repo: Repository) -> Result<Repository, HandlerError> {
 
     // Run code formatting
     info!("executing rustfmt for {}", repo.name_with_owner);
-    format_code(&path)?;
+    let projects = find_cargo_proj_root_dirs(&path)
+        .map_err(|e| HandlerError::internal(e))?;
+
+    for path in projects {
+        format_code(&path)?;
+    }
 
     // Commit and push changes
     git.commit_all("rustyrobot formatting")
@@ -181,6 +188,36 @@ fn rustfmt_repo(mut repo: Repository) -> Result<Repository, HandlerError> {
     info!("pushed changes into {}", repo.name_with_owner);
 
     Ok(repo)
+}
+
+use std::fs::{self, FileType};
+
+fn find_cargo_proj_root_dirs(root: &Path) -> Result<Vec<PathBuf>, Error> {
+    let mut paths = Vec::new();
+    reccur_over_folders(root, &mut paths)?;
+    Ok(paths)
+}
+
+fn reccur_over_folders(root: &Path, paths: &mut Vec<PathBuf>) -> Result<(), Error> {
+    let mut dirs = Vec::new();
+    for direntry in fs::read_dir(root)? {
+        let direntry = direntry?;
+        let filetype = direntry.file_type()?;
+        if filetype.is_dir() {
+            dirs.push(direntry.path());
+        } else if filetype.is_file() {
+            if direntry.file_name() == "Cargo.toml" {
+                paths.push(root.to_path_buf());
+                return Ok(());
+            }
+        }
+    }
+
+    for dir in dirs {
+        reccur_over_folders(&dir, paths)?;
+    }
+
+    Ok(())
 }
 
 fn format_code(path: &Path) -> Result<(), HandlerError> {

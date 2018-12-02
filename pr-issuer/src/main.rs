@@ -59,7 +59,7 @@ fn init_fern() -> Result<(), Error> {
             ))
         })
         .level_for("github", log::LevelFilter::Debug)
-        .level_for("formatter", log::LevelFilter::Debug)
+        .level_for("pr_issuer", log::LevelFilter::Debug)
         .level(log::LevelFilter::Warn)
         .chain(std::io::stdout())
         .apply()?;
@@ -68,6 +68,8 @@ fn init_fern() -> Result<(), Error> {
 
     Ok(())
 }
+
+const PR_MSG: &'static str = include_str!("../pr_message.md");
 
 fn main() {
     init_fern().expect("failed to setup logger");
@@ -102,8 +104,8 @@ fn main() {
                     callback(GithubRequest::CreatePR {
                         repo,
                         branch,
-                        title: "Formatting Suggestions".to_string(),
-                        message: "I've run rustfmt on your repo. Please take a look!".to_string(),
+                        title: "Formatting Suggestions from RustyRobot".to_string(),
+                        message: PR_MSG.to_string(),
                     })
                 },
                 _ => ()

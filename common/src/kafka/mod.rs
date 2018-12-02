@@ -1,6 +1,6 @@
 pub mod util;
 
-use types::Repository;
+use types::{Repository, Notification};
 use search::query::IncompleteQuery;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -10,6 +10,8 @@ pub enum Event {
     ForkDeleted(Repository),
     RepositoryFormatted(Repository),
     PRCreated(Repository),
+    Notification(Notification),
+    PRStatusChange(Repository),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,7 +24,9 @@ pub enum GithubRequest {
         branch: String,
         title: String,
         message: String,
-    }
+    },
+    FetchNotifications,
+    CheckPRStatus(Repository),
 }
 
 pub mod topic {

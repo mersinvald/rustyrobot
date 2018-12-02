@@ -36,12 +36,21 @@ use failure::Error;
 use dotenv;
 
 pub fn load_token() -> Result<String, Error> {
+    load_env("GITHUB_TOKEN")
+}
+
+
+pub fn load_username() -> Result<String, Error> {
+    load_env("GITHUB_USERNAME")
+}
+
+fn load_env(key: &str) -> Result<String, Error> {
     // First search .env
-    let token = dotenv::var("GITHUB_TOKEN")
+    let var = dotenv::var(key)
         // Then environment variables
         .or_else(|_| {
-            env::var("GITHUB_TOKEN")
+            env::var(key)
         })?;
 
-    Ok(token)
+    Ok(var)
 }

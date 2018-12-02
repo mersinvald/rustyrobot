@@ -3,6 +3,7 @@ use chrono::{DateTime, Utc};
 use json::Value;
 use failure::{err_msg, Error};
 use std::collections::HashMap;
+use log::error;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Repository {
@@ -23,7 +24,35 @@ pub struct Repository {
 pub struct Stats {
     pub format: Option<FormatStats>,
     pub fix: Option<FixStats>,
+    pub prs: Vec<PR>,
     pub aux: HashMap<String, Value>
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PR {
+    pub title: String,
+    pub number: i64,
+    pub status: PRStatus
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum PRStatus {
+    Open,
+    Merged,
+    Closed,
+}
+
+impl PRStatus {
+    pub fn from_str(from: &str) -> Option<Self> {
+        match from.to_ascii_lowercase().as_ref() {
+            "open" => Some(PRStatus::Open),
+            "merged" => Some(PRStatus::Merged),
+            "closed" => Some(PRStatus::Closed),
+            other => {
+                error!("couldn't parse {:?} as PRStatus", other);
+                None
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
